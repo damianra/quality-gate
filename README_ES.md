@@ -101,6 +101,10 @@ marker que coincida con su `head:<sha7>`.
 
 ## Variables de entorno
 
+Copiá `.env.example` a `.env` (ignorado por git) y completá los valores —
+lista todas las variables de abajo con sus defaults. `compose.yaml` lo
+levanta automáticamente.
+
 - `GITHUB_TOKEN` — solo por entorno, nunca en logs/código (requerido)
 - `DATABASE_URL` — DSN del checkpointer Postgres (opcional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — inputs del orquestador

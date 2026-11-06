@@ -96,6 +96,9 @@ comment; a PR is `pending` until a marker matching its `head:<sha7>` exists.
 
 ## Environment variables
 
+Copy `.env.example` to `.env` (gitignored) and fill in the values — it lists
+every variable below with defaults. `compose.yaml` picks it up automatically.
+
 - `GITHUB_TOKEN` — env-only, never logged/embedded (required)
 - `DATABASE_URL` — Postgres checkpointer DSN (optional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — orchestrator inputs
