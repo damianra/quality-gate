@@ -42,6 +42,28 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages
 
+      # Report-only step: the orchestrator's specialists own the verdict;
+      # this surfaces the raw signal dict in the job summary for humans.
+      - name: Scan diff for vibecoding signals
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, subprocess
+          from quality_gate_mcp.tools import analyze_diff
+          diff = subprocess.run(
+              ["git", "diff", f"origin/{os.environ['GITHUB_BASE_REF']}...HEAD"],
+              capture_output=True, text=True, check=False,
+          ).stdout
+          s = analyze_diff(diff, os.environ.get("PR_BODY", ""))
+          print("## Vibecoding signals\n")
+          print("```json")
+          print(json.dumps({k: v for k, v in s.items() if k != "per_file"}, indent=2))
+          print("```")
+          if s["secret_candidates"]:
+              print("\n**BLOCKER:** possible hardcoded secrets in this diff.")
+          PY
+
       - name: Run autonomous PR review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
