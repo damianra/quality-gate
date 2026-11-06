@@ -1,0 +1,18 @@
+[project]
+name = "quality-gate"
+version = "0.1.0"
+description = "Autonomous PR review system: LangGraph orchestrator + MCP server (monorepo)"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+quality-gate-mcp = { workspace = true }
+pr-review-orchestrator = { workspace = true }

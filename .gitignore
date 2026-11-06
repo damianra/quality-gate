@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+.uv/
+
+# Local data
+pgdata/
+target-repo/
+*.log
+
+# Env
+.env
