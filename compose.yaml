@@ -1,0 +1,52 @@
+name: quality-gate
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qualitygate
+      POSTGRES_PASSWORD: qualitygate
+      POSTGRES_DB: qualitygate
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qualitygate -d qualitygate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: packages/mcp-server/Dockerfile
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      QG_LOG_LEVEL: ${QG_LOG_LEVEL:-INFO}
+    # Runs the MCP server over SSE so it can be attached for manual debugging.
+    command: ["python", "-m", "quality_gate_mcp.server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    restart: "no"
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: packages/orchestrator/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DATABASE_URL: postgresql://qualitygate:qualitygate@postgres:5432/qualitygate
+      REPO_PATH: /work
+      PR_NUMBER: ${PR_NUMBER:-}
+      DRY_RUN: ${DRY_RUN:-false}
+    volumes:
+      # Mount the repository under review read-write (needed to run tsc/node --check).
+      - ${REPO_UNDER_TEST:-./target-repo}:/work
+    restart: "no"
+
+volumes:
+  pgdata:
