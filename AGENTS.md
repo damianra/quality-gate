@@ -11,6 +11,14 @@ The orchestrator's ReviewAgent also reads this file to score PRs.
 - **User-facing responses are in Spanish.** Chat answers, PR review
   summaries and any text directed at the user must be written in Spanish.
 
+## Commit conventions
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org):
+`<type>(<scope>): <imperative summary>` in English. Allowed types:
+`feat`, `fix`, `docs`, `test`, `ci`, `build`, `chore`, `refactor`, `perf`,
+`revert`. The scope is the package name (`mcp-server`, `orchestrator`)
+when the change is package-local; cross-cutting commits omit it.
+
 ## Bilingual documentation
 
 - `README.md` (English) and `README_ES.md` (Spanish) are mirrors: every
@@ -30,6 +38,7 @@ The orchestrator's ReviewAgent also reads this file to score PRs.
 ## PR review checklist
 
 - [ ] Comments and documentation in English; user-facing text in Spanish
+- [ ] Commit messages follow Conventional Commits (English, imperative)
 - [ ] `README.md` and `README_ES.md` aligned
 - [ ] No `shell=True`; spawned processes tracked via pgid
 - [ ] No secrets outside environment variables
