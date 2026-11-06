@@ -9,6 +9,11 @@ LangGraph orchestrator do in CI, but locally and interactively. The final
 verdict is reported to the user **in Spanish**; everything written to files
 or commits stays **in English** per `AGENTS.md`.
 
+The actual review **must be performed by a delegated sub-agent** with a
+fresh context: the parent agent gathers the raw evidence (diff, test
+results, scanner output), hands it to the sub-agent, and only formats its
+findings into the final verdict. Do not review inline in the parent agent.
+
 ## Steps
 
 1. Determine the PR scope: the base branch is `main` unless told otherwise.
@@ -25,7 +30,11 @@ or commits stays **in English** per `AGENTS.md`.
 4. Search for forbidden patterns across the diff:
    `git diff origin/main...HEAD | grep -nE 'shell=True|GITHUB_TOKEN|DATABASE_URL|console\.log|debugger|TODO|FIXME|HACK|XXX'`
 
-5. Act as three specialists and produce findings:
+5. **Delegate to the review sub-agent.** Spawn a sub-agent with this input:
+   the step-2 diff, the step-3 test output, the step-4 grep hits, the full
+   text of `AGENTS.md`, and `PR_BODY` if known. The sub-agent acts as three
+   specialists and returns findings as
+   `[{agent, severity: blocker|warning|info, file?, line?, detail}]`:
 
    - **ReviewAgent** — per `AGENTS.md`: comments and docs in English; no
      vibecoding (whitespace-only churn, dead commented blocks, unscoped
