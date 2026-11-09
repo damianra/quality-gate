@@ -220,3 +220,84 @@ def test_for_role_empty_override_inherits_base() -> None:
 def test_for_role_unknown_role_rejected() -> None:
     with pytest.raises(LLMConfigError, match="unknown role"):
         LLMConfig.for_role("bogus", {})
+
+
+def test_devin_cli_needs_no_key_or_model() -> None:
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    assert cfg.enabled is True
+    assert cfg.provider == "devin-cli"
+    assert cfg.model == ""  # CLI default applies
+
+
+def test_devin_cli_argv_is_read_only_and_shell_free() -> None:
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    argv = cfg._devin_cli_argv("sys", "user")
+    assert argv[0] == "devin"
+    assert "--print" in argv and argv[-1] == "sys\n\nuser"
+    assert "--permission-mode" in argv and "auto" in argv
+    assert "--respect-workspace-trust" in argv and "false" in argv
+    assert "--model" not in argv  # unset model -> CLI default
+
+
+def test_devin_cli_argv_includes_model_when_set() -> None:
+    cfg = LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "devin-cli", "QG_LLM_MODEL": "opus"}
+    )
+    argv = cfg._devin_cli_argv("sys", "user")
+    i = argv.index("--model")
+    assert argv[i + 1] == "opus"
+
+
+def _fake_spawn(result):
+    def _spawn(repo_path, command, args=None, timeout=None):
+        return {**result, "command": [command, *(args or [])]}
+    return _spawn
+
+
+def test_devin_cli_completion_returns_stdout_and_pgid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "pr_review_orch.llm.mcp_tools.spawn_process",
+        _fake_spawn({
+            "pgid": 4242, "exit_code": 0, "stdout": "review out",
+            "stderr": "", "timed_out": False, "duration_s": 1.5,
+        }),
+    )
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    out = cfg.complete_with_meta("sys", "user", cwd="/repo")
+    assert out["text"] == "review out"
+    assert out["pgid"] == 4242
+    assert out["truncated"] is False
+    assert out["usage"] == {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+def test_devin_cli_failure_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "pr_review_orch.llm.mcp_tools.spawn_process",
+        _fake_spawn({
+            "pgid": -1, "exit_code": 127, "stdout": "",
+            "stderr": "command not found: devin",
+            "timed_out": False, "duration_s": 0.0,
+        }),
+    )
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    with pytest.raises(RuntimeError, match="devin-cli failed"):
+        cfg.complete_with_meta("sys", "user", cwd="/repo")
+
+
+def test_devin_cli_timeout_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "pr_review_orch.llm.mcp_tools.spawn_process",
+        _fake_spawn({
+            "pgid": 4242, "exit_code": -9, "stdout": "",
+            "stderr": "killed", "timed_out": True, "duration_s": 60.0,
+        }),
+    )
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    with pytest.raises(RuntimeError, match="timed_out=True"):
+        cfg.complete_with_meta("sys", "user", cwd="/repo")

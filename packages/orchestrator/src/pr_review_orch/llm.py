@@ -32,6 +32,8 @@ from typing import Any
 
 import httpx
 
+from quality_gate_mcp import tools as mcp_tools
+
 _DEFAULT_TIMEOUT = 60.0
 
 
@@ -39,7 +41,8 @@ _DEFAULT_TIMEOUT = 60.0
 class Provider:
     """Static defaults for one LLM provider family."""
 
-    api: str  # "openai" (chat completions) or "anthropic" (messages)
+    api: str  # "openai" (chat completions), "anthropic" (messages),
+    # or "devin-cli" (local agent subprocess, FR-O17)
     base_url: str | None
     needs_key: bool
     canonical_env: tuple[str, ...]  # provider-native key vars honored as fallback
@@ -88,6 +91,13 @@ PROVIDERS: dict[str, Provider] = {
         needs_key=True,
         canonical_env=(),
         default_model="",
+    ),
+    "devin-cli": Provider(
+        api="devin-cli",
+        base_url="",  # local agent subprocess, no HTTP endpoint
+        needs_key=False,  # auth lives in the `devin auth` session, not env
+        canonical_env=(),
+        default_model="",  # unset -> the CLI's configured default model
     ),
 }
 
@@ -193,7 +203,8 @@ class LLMConfig:
             raise LLMConfigError(f"provider {name!r} requires QG_LLM_BASE_URL")
 
         model = env.get("QG_LLM_MODEL") or spec.default_model
-        if not model:
+        if not model and spec.api != "devin-cli":
+            # devin-cli may legitimately run model-less (CLI default).
             raise LLMConfigError(f"provider {name!r} requires QG_LLM_MODEL")
 
         return cls(
@@ -282,7 +293,9 @@ class LLMConfig:
     # Chat
     # ------------------------------------------------------------------ #
 
-    def complete_with_meta(self, system: str, user: str) -> dict[str, Any]:
+    def complete_with_meta(
+        self, system: str, user: str, cwd: str | None = None
+    ) -> dict[str, Any]:
         """Single-shot completion returning text plus usage/latency metrics.
 
         ``usage`` is normalized to ``prompt_tokens``/``completion_tokens``
@@ -290,10 +303,15 @@ class LLMConfig:
         ``finish_reason`` carries the raw provider stop signal and
         ``truncated`` flags answers cut short by a token cap — callers
         MUST check it before trusting structured output (FR-O14).
+        ``cwd`` is the working directory for subprocess providers
+        (``devin-cli``); ignored by HTTP providers. CLI completions also
+        return ``pgid`` so the caller can register it in ``active_pgids``.
         """
         if not self.enabled:
             raise LLMConfigError("LLM is disabled: set QG_LLM_PROVIDER")
         spec = PROVIDERS[self.provider]
+        if spec.api == "devin-cli":
+            return self._devin_cli(system, user, cwd)
         if spec.api == "anthropic":
             url, headers, payload = self._anthropic_request(system, user)
         else:
@@ -307,6 +325,52 @@ class LLMConfig:
         data = resp.json()
 
         return {**_parse_response(spec.api, data), "duration_s": duration_s}
+
+    def _devin_cli_argv(self, system: str, user: str) -> list[str]:
+        """Argv for the non-interactive devin run (FR-O17). Pure for tests.
+
+        ``--permission-mode auto`` keeps the agent read-only; print mode
+        skips workspace-trust prompts so automated runs do not stall.
+        """
+        prompt = f"{system}\n\n{user}" if system else user
+        argv = [
+            "devin",
+            "--permission-mode", "auto",
+            "--respect-workspace-trust", "false",
+            "--verbosity", "0",
+        ]
+        if self.model:
+            argv += ["--model", self.model]
+        argv += ["--print", prompt]
+        return argv
+
+    def _devin_cli(
+        self, system: str, user: str, cwd: str | None
+    ) -> dict[str, Any]:
+        """Run the devin CLI as a tracked subprocess and return metadata.
+
+        ``pgid`` is surfaced so the caller MUST register it in
+        ``active_pgids`` for the cleanup node — same contract as other
+        ``spawn_process`` consumers. Non-zero exits and timeouts raise
+        ``RuntimeError`` for the caller to degrade per FR-O16.
+        """
+        argv = self._devin_cli_argv(system, user)
+        res = mcp_tools.spawn_process(
+            cwd or os.getcwd(), argv[0], argv[1:], timeout=int(self.timeout)
+        )
+        if res["timed_out"] or res["exit_code"] != 0:
+            raise RuntimeError(
+                f"devin-cli failed (exit={res['exit_code']},"
+                f" timed_out={res['timed_out']}): {res['stderr'][-300:]}"
+            )
+        return {
+            "text": res["stdout"],
+            "duration_s": res["duration_s"],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "finish_reason": None,
+            "truncated": False,
+            "pgid": res["pgid"],
+        }
 
     def complete(self, system: str, user: str) -> str:
         """Single-shot completion. Returns the assistant message text.

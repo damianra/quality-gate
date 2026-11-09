@@ -356,6 +356,7 @@ volatile during early history edits; commits are identified by subject):
 | 19 | `feat(orchestrator)`: `LLMConfig.for_role` + per-role `.env.example` |
 | 20 | `docs`: role-scoped LLM config in both root READMEs |
 | 21 | `docs`: FR-O17 devin-cli provider + dead free-model slug fix |
+| 22 | `feat(orchestrator)`: `devin-cli` subprocess provider |
 
 ## 11. Extension points (SDD backlog)
 

@@ -136,6 +136,7 @@ proveedor).
 | `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
 | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
 | `custom` | `QG_LLM_API_KEY` | requiere `QG_LLM_BASE_URL` |
+| `devin-cli` | — (sesión `devin auth`) | subproceso local, sin URL |
 
 Cada proveedor trae un modelo por defecto; se sobreescribe con
 `QG_LLM_MODEL`.

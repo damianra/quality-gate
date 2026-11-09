@@ -129,6 +129,7 @@ LLM-backed enrichment in the orchestrator; keys stay in env vars only
 | `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
 | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
 | `custom` | `QG_LLM_API_KEY` | requires `QG_LLM_BASE_URL` |
+| `devin-cli` | — (`devin auth` session) | local subprocess, no URL |
 
 Each provider ships a default model; override with `QG_LLM_MODEL`.
 

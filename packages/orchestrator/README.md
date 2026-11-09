@@ -47,7 +47,9 @@ red/green check in CI).
 - `PR_NUMBER`, `REPO_PATH`, `DRY_RUN`
 - `QG_QA_PROCESS_TIMEOUT`, `QG_CLEANUP_GRACE_SECONDS`
 - `QG_LLM_PROVIDER` — optional: `ollama`, `openai`, `anthropic`, `nvidia`,
-  `openrouter` or `custom` (see `llm.py` for per-provider defaults)
+  `openrouter`, `custom` or `devin-cli` (see `llm.py` for per-provider
+  defaults). `devin-cli` runs the local `devin` agent as a tracked
+  subprocess — needs no API key, uses your Devin account auth
 - `QG_LLM_API_KEY` / canonical vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
   `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`), `QG_LLM_MODEL`,
   `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`,
