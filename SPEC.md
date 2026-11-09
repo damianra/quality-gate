@@ -181,6 +181,25 @@ duration lands in `node_durations`.
   in `llm_calls`. `QG_LLM_MAX_TOKENS` MUST cover the expected response
   shape — free-tier models with mandatory reasoning burn the budget on
   chain-of-thought and can return empty `text` with `truncated=True`.
+- **FR-O15 Role-scoped LLM config** — every `QG_LLM_*` setting accepts a
+  role suffix `QG_LLM_<SETTING>_<ROLE>` with ROLE ∈ {HARNESS, REVIEW,
+  SECURITY, QA} (case-insensitive). `LLMConfig.for_role(role)` resolves
+  role vars first, then the base `QG_LLM_*` block (which doubles as the
+  HARNESS config and the shared fallback), then provider defaults.
+  Empty suffixed vars are ignored — unset means "inherit". Each role
+  gets an independent provider/model/key/base_url/temperature/timeout/
+  max_tokens, e.g. harness on local Ollama while specialists use
+  OpenRouter `:free` models. Unknown roles raise `LLMConfigError`.
+- **FR-O16 Specialist LLM wiring** — the harness node uses its role
+  config to build each specialist's payload from `pr_context` (falling
+  back to raw `pr_context` on failure); specialist nodes call
+  `complete_with_meta` with their own role config, merge the structured
+  response into `findings`, and record `{role, provider, model,
+  duration_s, usage, truncated}` in `llm_calls`. Calls run concurrently
+  inside the existing parallel fan-out. On provider error,
+  `truncated=True`, or missing credentials the node MUST degrade to
+  deterministic findings with an "LLM enrichment unavailable" note —
+  LLM failure alone never rejects a PR.
 
 ## 5. Non-functional requirements
 
@@ -318,15 +337,17 @@ volatile during early history edits; commits are identified by subject):
 | 15 | `feat(orchestrator)`: run metrics + blast-radius scoping |
 | 16 | `docs`: FR-O14 LLM completion contract + truncation handling |
 | 17 | `feat(orchestrator)`: `truncated`/`finish_reason` in `complete_with_meta` |
+| 18 | `docs`: FR-O15 role-scoped LLM config + FR-O16 wiring contract |
 
 ## 11. Extension points (SDD backlog)
 
 Planned hooks already shaped by the codebase — spec them here before
 implementing:
 
-- **LLM-enriched specialists** — `llm.py` and `pr_context` are ready;
-  specialists currently run deterministic-only. Requires: prompt
-  contracts, llm_calls metric wiring, fallback on LLM failure.
+- **LLM-enriched specialists** — role-scoped config (FR-O15),
+  truncation flag (FR-O14) and `pr_context` are in place; specialists
+  currently run deterministic-only. Remaining per FR-O16: prompt
+  contracts, node wiring, `llm_calls` recording.
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
