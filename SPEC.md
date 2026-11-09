@@ -359,6 +359,7 @@ volatile during early history edits; commits are identified by subject):
 | 22 | `feat(orchestrator)`: `devin-cli` subprocess provider |
 | 23 | `docs`: `swe-2-high` example for devin-cli review role |
 | 24 | `docs`: branch + pr-review workflow policy in AGENTS.md |
+| 25 | `docs`: single functional validation in local pr-review workflow |
 
 ## 11. Extension points (SDD backlog)
 
