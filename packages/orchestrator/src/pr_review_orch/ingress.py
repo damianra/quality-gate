@@ -1,0 +1,212 @@
+"""Webhook ingress for service mode (FR-O19) with an in-process run queue
+(FR-O21) on top of the ephemeral fetcher (FR-O20).
+
+Flow per accepted delivery: HMAC verify -> pull_request action filter ->
+repo allowlist -> delivery dedupe -> enqueue -> worker clones an ephemeral
+worktree, runs ``run_pr_review`` on it, then removes the worktree (INV-2
+extension: directories are cleaned like pgids).
+
+Security contract (INV-6/FR-O22): signature is verified on the raw body
+before JSON parsing; unsigned/mismatched payloads get 401 with no side
+effects; the repo allowlist is deny-by-default; only event metadata is
+logged — never signatures, token, or body.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import logging
+import shutil
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import FastAPI, Request, Response
+
+from . import config, fetch, graph
+
+logger = logging.getLogger(__name__)
+
+_REVIEW_ACTIONS = {"opened", "synchronize", "reopened"}
+_MAX_DELIVERY_IDS = 10_000
+
+#: Created per lifespan: queue waiters bind to the running event loop,
+#: so a module-level instance would leak stale futures across loops.
+_QUEUE: asyncio.Queue[dict[str, Any]] | None = None
+#: Delivery IDs already enqueued/processed (X-GitHub-Delivery dedupe).
+_SEEN_DELIVERIES: set[str] = set()
+#: thread_id -> latest enqueued payload (coalesces bursts on one PR).
+_PENDING: dict[str, dict[str, Any]] = {}
+#: thread_ids with an active drain task (per-thread serialization).
+_ACTIVE: set[str] = set()
+
+
+def verify_signature(body: bytes, signature: str) -> bool:
+    """True iff ``signature`` is the valid ``sha256=<hmac>`` for ``body``.
+
+    Constant-time compare; fails closed when no secret is configured or
+    the header is missing/malformed (INV-6).
+    """
+    secret = config.GITHUB_WEBHOOK_SECRET
+    if not secret or not signature.startswith("sha256="):
+        return False
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature[len("sha256="):])
+
+
+def repo_allowed(full_name: str) -> bool:
+    """Match ``owner/repo`` against ``QG_ALLOWED_REPOS`` (deny-by-default)."""
+    for entry in config.ALLOWED_REPOS:
+        if entry == "*":
+            return True
+        if entry.endswith("/*"):
+            if full_name.startswith(entry[:-1]):
+                return True
+        elif full_name == entry:
+            return True
+    return False
+
+
+def _extract_event(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Pull repo/PR/sha out of a reviewable pull_request payload."""
+    action = payload.get("action")
+    pr = payload.get("pull_request") or {}
+    repo = payload.get("repository") or {}
+    if action not in _REVIEW_ACTIONS or not pr.get("number"):
+        return None
+    return {
+        "repo": repo.get("full_name", ""),
+        "clone_url": repo.get("clone_url", ""),
+        "pr_number": int(pr["number"]),
+        "head_sha": (pr.get("head") or {}).get("sha", ""),
+    }
+
+
+def _enqueue(delivery: str, event: dict[str, Any]) -> str:
+    """Dedupe + queue a reviewable event; returns 'enqueued'|'duplicate'."""
+    if delivery and delivery in _SEEN_DELIVERIES:
+        return "duplicate"
+    if delivery:
+        _SEEN_DELIVERIES.add(delivery)
+        if len(_SEEN_DELIVERIES) > _MAX_DELIVERY_IDS:
+            _SEEN_DELIVERIES.pop()  # bounded cache; eviction is arbitrary
+    assert _QUEUE is not None, "queue exists once the app is running"
+    _QUEUE.put_nowait(event)
+    return "enqueued"
+
+
+async def _run_once(event: dict[str, Any]) -> None:
+    """Clone -> review -> rmtree for one event (INV-2 directory cleanup)."""
+    worktree = None
+    try:
+        worktree = await asyncio.to_thread(
+            fetch.clone_pr, event["clone_url"], event["head_sha"]
+        )
+        await asyncio.to_thread(
+            graph.run_pr_review, str(worktree), event["pr_number"]
+        )
+    except Exception:
+        logger.exception(
+            "run failed for %s#%s", event["repo"], event["pr_number"]
+        )
+    finally:
+        if worktree is not None:
+            shutil.rmtree(worktree, ignore_errors=True)
+
+
+async def _drain(key: str, first: dict[str, Any]) -> None:
+    """Process queued events for one thread_id, coalescing bursts."""
+    event = first
+    while True:
+        await _run_once(event)
+        nxt = _PENDING.pop(key, None)
+        if nxt is None:
+            _ACTIVE.discard(key)
+            return
+        event = nxt
+
+
+async def _worker(queue: asyncio.Queue) -> None:
+    """Dispatch queue items; serialize per thread_id, bound parallelism."""
+    sem = asyncio.Semaphore(config.MAX_CONCURRENT_RUNS)
+    while True:
+        event = await queue.get()
+        key = f"{event['repo']}#{event['pr_number']}"
+        if key in _ACTIVE:
+            _PENDING[key] = event  # coalesce: only the latest matters
+            continue
+        _ACTIVE.add(key)
+        asyncio.create_task(_drain_guarded(sem, key, event))
+
+
+async def _drain_guarded(sem: asyncio.Semaphore, key: str,
+                         event: dict[str, Any]) -> None:
+    async with sem:
+        await _drain(key, event)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    global _QUEUE
+    _QUEUE = asyncio.Queue()
+    fetch.sweep_stale_worktrees()
+    worker = asyncio.create_task(_worker(_QUEUE))
+    try:
+        yield
+    finally:
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="quality-gate ingress", lifespan=_lifespan)
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/github/webhook")
+async def github_webhook(request: Request) -> Response:
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if not verify_signature(body, signature):
+        return Response(status_code=401)
+    if request.headers.get("X-GitHub-Event", "") != "pull_request":
+        return Response(status_code=202)
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return Response(status_code=400)
+    event = _extract_event(payload)
+    if event is None:
+        return Response(status_code=202)
+    logger.info(
+        "webhook %s %s#%s %s", payload.get("action"), event["repo"],
+        event["pr_number"], event["head_sha"][:7],
+    )
+    if not repo_allowed(event["repo"]):
+        logger.info("repo not allowed, dropped: %s", event["repo"])
+        return Response(status_code=403)
+    status = _enqueue(request.headers.get("X-GitHub-Delivery", ""), event)
+    return Response(status_code=202 if status == "enqueued" else 200)
+
+
+def main() -> None:
+    """Run the ingress on loopback — nginx owns the public port."""
+    import uvicorn
+
+    if not config.GITHUB_WEBHOOK_SECRET:
+        logger.warning(
+            "GITHUB_WEBHOOK_SECRET unset — every payload will be rejected"
+        )
+    uvicorn.run(app, host="127.0.0.1", port=config.INGRESS_PORT)
+
+
+if __name__ == "__main__":
+    main()
