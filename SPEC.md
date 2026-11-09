@@ -57,6 +57,29 @@ GitHub PR event ──> pr-review.yml ──> orchestrator
 - The MCP server is fully stateless: no persistence, everything is
   re-derived per call.
 
+### 2.3 Deployment topology (service mode)
+
+```text
+GitHub webhook (pull_request) ──> nginx :QG_INGRESS_PORT
+                                     │ rate-limit, body cap, proxy
+                                     ▼
+                              ingress (uvicorn/FastAPI)
+                              POST /github/webhook | GET /healthz
+                                     │ HMAC verify + repo allowlist
+                                     ▼
+                     mkdtemp clone (token auth, blob:none) → run_pr_review
+                                     │
+                     verdict → PR comment (API) + metrics rows (Postgres)
+                                     ▼
+                     cleanup: killpg(active_pgids) + rmtree(worktree)
+```
+
+- The Action path (§2.2) stays supported — service mode is additive;
+  `run_pr_review(repo_path, pr_number)` is reused unchanged.
+- Ollama (`QG_LLM_PROVIDER=ollama`, `QG_LLM_BASE_URL=http://localhost:11434`,
+  `QG_LLM_MODEL=qwen3:8b`) is the deployment default so no external LLM
+  key is needed; role-scoped `QG_LLM_*` overrides keep working (FR-O15).
+
 ## 3. Non-negotiable invariants
 
 - **INV-1 Process safety.** `shell=True` is forbidden; every subprocess is
@@ -76,6 +99,11 @@ GitHub PR event ──> pr-review.yml ──> orchestrator
 - **INV-5 Language policy.** Code, comments, docs and commits in English;
   user-facing text (verdict comment, chat) in Spanish. `README.md` and
   `README_ES.md` are mirrors updated in the same PR.
+- **INV-6 Webhook integrity.** Every ingress payload is HMAC-verified
+  (`X-Hub-Signature-256` vs `GITHUB_WEBHOOK_SECRET`, constant-time
+  compare) before any processing; unsigned or mismatched payloads are
+  rejected without side effects. Repos outside `QG_ALLOWED_REPOS` are
+  rejected before any clone — the allowlist is deny-by-default.
 
 ## 4. Functional requirements
 
@@ -235,6 +263,41 @@ duration lands in `node_durations`.
   Persistence MUST never break a run: write failures are logged and
   swallowed, and the call is a no-op without `DATABASE_URL`.
 
+- **FR-O19 Webhook ingress.** An `ingress` FastAPI/uvicorn service exposes
+  `POST /github/webhook` behind nginx. It accepts only `pull_request`
+  payloads with action `opened|synchronize|reopened` → enqueue a run;
+  other events/actions return `202` ignored. Signature verification per
+  INV-6 happens before parsing; failures return `401` with no side
+  effects. `GET /healthz` returns liveness for nginx/monitoring. The
+  service never binds publicly itself — nginx owns the exposed port
+  (`QG_INGRESS_PORT`) and proxies to loopback.
+- **FR-O20 Ephemeral fetch.** On an accepted event the service clones
+  `repository.clone_url` (HTTPS + `GITHUB_TOKEN` as auth header — never
+  in URL, args or logs) into `mkdtemp(prefix="qg-", dir=QG_WORKTREE_ROOT)`
+  at the PR `head.sha` with `--filter=blob:none` (bounded, full ref
+  history not needed beyond the diff). `QG_CLONE_TIMEOUT` kills the clone;
+  `QG_MAX_WORKTREE_BYTES` caps disk per run. The worktree becomes the
+  run's `REPO_PATH`; after the run, cleanup `shutil.rmtree`s it even on
+  failure (INV-2 extension: directories are cleaned like pgids). A
+  startup sweep removes stale `qg-*` dirs from crashed runs.
+- **FR-O21 Service runtime and queue.** Ingress enqueues runs; a worker
+  executes `run_pr_review(worktree, pr_number)` with `DATABASE_URL`
+  configured so checkpoints and metrics rows are produced per run.
+  Runs serialize per `thread_id` (`pr-review/<repo>/<pr>`): a queued
+  event for an in-flight thread coalesces into one re-run after it
+  finishes. `QG_MAX_CONCURRENT_RUNS` bounds parallelism across threads.
+  Compose gains `ingress`, `nginx` (dedicated public port, proxy to
+  ingress loopback) and optionally `ollama` for the default provider.
+- **FR-O22 Public-exposure hardening.** `QG_ALLOWED_REPOS` holds
+  `owner/repo` or `owner/*` entries (comma-separated, empty = deny all,
+  wildcard `*` = allow any repo the token can read — NOT recommended
+  publicly). nginx sets `limit_req_zone` (default 10 r/s per IP) and
+  `client_max_body_size` (default 1 MB) before proxying. The service
+  logs event metadata only (repo, pr, sha, action) — never signatures,
+  token or body. Clone failures, signature failures and allowlist
+  denials are logged and dropped; they never reach the graph. PR
+  comments stay idempotent via the existing marker (INV-4).
+
 ## 5. Non-functional requirements
 
 - **NFR-1 Determinism.** The review is reproducible: same inputs → same
@@ -320,6 +383,7 @@ All via env vars; `.env.example` is the canonical template.
 | Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
+| Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
 
 ## 8. Delivery surfaces
 
@@ -334,7 +398,9 @@ All via env vars; `.env.example` is the canonical template.
   `uv sync --no-dev --package <pkg>`, non-root `appuser` (uid 10001).
 - **Compose:** `postgres` (healthchecked), `mcp-server` (SSE :8000),
   `orchestrator` (depends on postgres, mounts `REPO_UNDER_TEST` → `/work`
-  read-write for `tsc` caches).
+  read-write for `tsc` caches). Service mode adds `ingress` (uvicorn,
+  loopback) + `nginx` (public `QG_INGRESS_PORT`, rate-limited proxy) +
+  optional `ollama` (default LLM provider, per §2.3).
 
 ## 9. Testing requirements
 
@@ -385,6 +451,7 @@ volatile during early history edits; commits are identified by subject):
 | 26 | `docs`: FR-O18 persistent run metrics tables |
 | 27 | `feat(orchestrator)`: `metrics.persist_run` → Postgres |
 | 28 | `fix(orchestrator)`: metrics resilience — per-row isolation, DDL memo |
+| 29 | `docs`: deployment phase — webhook ingress + ephemeral fetch spec |
 
 ## 11. Extension points (SDD backlog)
 
@@ -394,7 +461,9 @@ implementing:
 - **LLM-enriched specialists** — role-scoped config (FR-O15),
   truncation flag (FR-O14) and `pr_context` are in place; specialists
   currently run deterministic-only. Remaining per FR-O16: prompt
-  contracts, node wiring, `llm_calls` recording.
+  contracts, node wiring, `llm_calls` recording. Wiring lands with the
+  service phase (FR-O19..O22) where ollama/qwen is the default provider
+  (§2.3).
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
