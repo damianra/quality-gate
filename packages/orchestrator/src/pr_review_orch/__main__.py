@@ -35,6 +35,7 @@ def main() -> None:
         "summary": verdict.get("summary"),
         "posted": result.get("posted"),
         "cleanup_report": result.get("cleanup_report"),
+        "metrics": result.get("metrics"),
     }, indent=2))
 
     # Non-zero exit when the PR is rejected lets the Action mark the check red.

@@ -174,13 +174,14 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
     files = [f["filename"] for f in state.get("files", [])]
     findings: list[dict[str, Any]] = []
     pgids: list[int] = []
+    proc_metrics: list[dict[str, Any]] = []
 
     commands = _qa_commands(repo, files)
     if not commands:
         findings.append(_finding(
             "qa", "info", "No validators available",
             "Neither a local tsc nor node is available; structural checks skipped."))
-        return {"findings": findings, "active_pgids": pgids}
+        return {"findings": findings, "active_pgids": pgids, "processes": proc_metrics}
 
     failures = 0
     for cmd in commands:
@@ -191,6 +192,13 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
         )
         if res["pgid"] > 0:
             pgids.append(res["pgid"])
+        proc_metrics.append({
+            "agent": "qa",
+            "command": " ".join(cmd),
+            "duration_s": res.get("duration_s", 0.0),
+            "exit_code": res["exit_code"],
+            "timed_out": res["timed_out"],
+        })
         if res["timed_out"]:
             failures += 1
             findings.append(_finding(
@@ -215,4 +223,4 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
             f"{len(commands)} check(s) completed cleanly "
             f"({', '.join(c[0] for c in commands)})."))
 
-    return {"findings": findings, "active_pgids": pgids}
+    return {"findings": findings, "active_pgids": pgids, "processes": proc_metrics}

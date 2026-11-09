@@ -25,11 +25,21 @@ class PRReviewState(TypedDict, total=False):
     files: list[dict[str, Any]]
     signals: dict[str, Any]
     agents_to_run: list[str]
+    # Scoped blast-radius context: diff + changed files + direct
+    # dependents; sub-agents must review this, not the whole repo.
+    pr_context: dict[str, Any]
 
     # Written by specialist nodes; add-reducer merges parallel branches
     findings: Annotated[list[dict[str, Any]], operator.add]
     active_pgids: Annotated[list[int], operator.add]
     errors: Annotated[list[str], operator.add]
+
+    # Observability: timing/usage entries merged across parallel branches
+    started_at: float
+    node_durations: Annotated[list[dict[str, Any]], operator.add]
+    llm_calls: Annotated[list[dict[str, Any]], operator.add]
+    processes: Annotated[list[dict[str, Any]], operator.add]
+    metrics: dict[str, Any]  # aggregate report set by synthesizer_node
 
     # Populated by synthesizer_node
     verdict: dict[str, Any]

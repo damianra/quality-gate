@@ -16,3 +16,8 @@ MAX_FILES_PAGES = int(os.environ.get("QG_MAX_FILES_PAGES", "5"))
 
 #: Timeout for QA validation processes (tsc, node --check).
 QA_PROCESS_TIMEOUT = int(os.environ.get("QG_QA_PROCESS_TIMEOUT", "120"))
+
+#: Hard caps on the scoped review context (blast radius). Bound token
+#: spend when sub-agents/LLMs consume pr_context.
+SCOPE_MAX_FILES = int(os.environ.get("QG_SCOPE_MAX_FILES", "25"))
+SCOPE_MAX_CHARS = int(os.environ.get("QG_SCOPE_MAX_CHARS", "200000"))

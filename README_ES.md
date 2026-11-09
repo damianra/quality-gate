@@ -109,7 +109,17 @@ levanta automáticamente.
 - `DATABASE_URL` — DSN del checkpointer Postgres (opcional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — inputs del orquestador
 - `QG_*` — timeouts y umbrales del scanner (ver `config.py` de cada paquete)
+- `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` — límites del blast radius:
+  los agentes revisan el diff + archivos cambiados + dependientes directos
+  únicamente, nunca el repo completo
 - `QG_LLM_*` — proveedor de LLM opcional (ver abajo)
+
+### Métricas
+
+Cada ejecución reporta un bloque `metrics` (JSON del CLI + línea
+`**Métricas:**` en el veredicto del PR): duración por nodo, llamadas LLM
+con tokens de prompt/completion y tiempos de procesos lanzados — para ver
+dónde se va el tiempo y los tokens.
 
 ### Proveedor de LLM (opcional)
 

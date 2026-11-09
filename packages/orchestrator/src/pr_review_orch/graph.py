@@ -8,14 +8,16 @@ Guarantees:
 
 from __future__ import annotations
 
+import functools
 import logging
+import time
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from quality_gate_mcp import tools as mcp_tools
 
-from . import agents, cleanup, config
+from . import agents, cleanup, config, metrics, scope
 from .state import PRReviewState
 
 logger = logging.getLogger("pr-review-orch")
@@ -41,6 +43,12 @@ def router_node(state: PRReviewState) -> dict[str, Any]:
         if len(chunk) < 30:
             break
 
+    # Blast-radius scope: reviewers/sub-agents consume this bounded
+    # context instead of scanning the whole repo (token/time guardrail).
+    pr_context = scope.build_pr_context(
+        repo_path, files, signals.get("diff_text", "")
+    )
+
     return {
         "pr_title": signals.get("title", ""),
         "pr_body": signals.get("pr_body", ""),
@@ -48,6 +56,7 @@ def router_node(state: PRReviewState) -> dict[str, Any]:
         "base_ref": signals.get("base_ref", ""),
         "files": files,
         "signals": signals,
+        "pr_context": pr_context,
         "agents_to_run": agents.choose_agents(signals, files),
     }
 
@@ -106,9 +115,15 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
         f"{sum(1 for f in findings if f['severity'] == 'warning')} warning(s), "
         f"{sum(1 for f in findings if f['severity'] == 'info')} info."
     )
-    verdict = {"approve": approve, "checks": checks, "summary": summary}
+    report = metrics.summarize(state)
+    verdict = {
+        "approve": approve,
+        "checks": checks,
+        "summary": summary,
+        "metrics": report,
+    }
 
-    update: dict[str, Any] = {"verdict": verdict}
+    update: dict[str, Any] = {"verdict": verdict, "metrics": report}
     if state.get("dry_run"):
         update["posted"] = {"action": "dry_run", "url": "", "head_sha": state.get("head_sha", "")[:7]}
     else:
@@ -116,6 +131,7 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
             state["repo_path"], state["pr_number"], approve, checks,
             result=summary,
             note=f"PR #{state['pr_number']} reviewed automatically by quality-gate.",
+            metrics_line=metrics.summary_line(report),
         )
         update["posted"] = posted
     return update
@@ -133,15 +149,30 @@ def cleanup_node(state: PRReviewState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
+def _timed(name: str, fn: Any) -> Any:
+    """Wrap a node so its wall-clock duration lands in metrics state."""
+
+    @functools.wraps(fn)
+    def wrapper(state: PRReviewState) -> dict[str, Any]:
+        started = time.monotonic()
+        update = fn(state) or {}
+        durations = list(update.get("node_durations") or [])
+        durations.append(metrics.node_duration(name, started))
+        update["node_durations"] = durations
+        return update
+
+    return wrapper
+
+
 def build_graph(checkpointer: Any | None = None) -> Any:
     g = StateGraph(PRReviewState)
 
-    g.add_node("router", router_node)
-    g.add_node("review", review_node)
-    g.add_node("security", security_node)
-    g.add_node("qa", qa_node)
-    g.add_node("synthesizer", synthesizer_node)
-    g.add_node("cleanup", cleanup_node)
+    g.add_node("router", _timed("router", router_node))
+    g.add_node("review", _timed("review", review_node))
+    g.add_node("security", _timed("security", security_node))
+    g.add_node("qa", _timed("qa", qa_node))
+    g.add_node("synthesizer", _timed("synthesizer", synthesizer_node))
+    g.add_node("cleanup", _timed("cleanup", cleanup_node))
 
     g.add_edge(START, "router")
     g.add_conditional_edges("router", route_specialists, list(SPECIALISTS.values()))
@@ -188,6 +219,10 @@ def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False) -> dict
         "findings": [],
         "active_pgids": [],
         "errors": [],
+        "started_at": time.monotonic(),
+        "node_durations": [],
+        "llm_calls": [],
+        "processes": [],
     }
     run_config = {"configurable": {"thread_id": _thread_id(repo_path, pr_number)}}
 

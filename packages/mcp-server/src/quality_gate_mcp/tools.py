@@ -32,6 +32,7 @@ def build_verdict_comment(
     result: str,
     note: str,
     head_sha: str,
+    metrics_line: str = "",
 ) -> str:
     """Build the contractual verdict comment body.
 
@@ -56,6 +57,8 @@ def build_verdict_comment(
         lines += ["", f"**Result:** {result}"]
     if note:
         lines.append(f"**Note:** {note}")
+    if metrics_line:
+        lines += ["", f"**Métricas:** {metrics_line}"]
     lines += ["", f"{MARKER_PREFIX}{head_sha[:7]} -->"]
     return "\n".join(lines)
 
@@ -306,6 +309,9 @@ def analyze_pr_signals(repo_path: str, pr_number: int) -> dict[str, Any]:
                 "head_sha": pr["head"]["sha"],
                 "base_ref": pr["base"]["ref"],
                 "pr_body": pr.get("body") or "",
+                # Raw unified diff: primary evidence for the scoped
+                # review context built by the orchestrator router.
+                "diff_text": diff_text,
             }
         )
         return signals
@@ -351,6 +357,7 @@ def post_verdict(
     checks: list[dict[str, Any]],
     result: str = "",
     note: str = "",
+    metrics_line: str = "",
 ) -> dict[str, Any]:
     """Post (or update) the contractual verdict comment on the PR.
 
@@ -361,7 +368,9 @@ def post_verdict(
     with GitHubClient() as gh:
         pr = gh.get_pr(slug, pr_number)
         head_sha = pr["head"]["sha"]
-        body = build_verdict_comment(approve, checks, result, note, head_sha)
+        body = build_verdict_comment(
+            approve, checks, result, note, head_sha, metrics_line=metrics_line
+        )
         existing = find_verdict_comment(gh.list_issue_comments(slug, pr_number))
         if existing is not None:
             comment = gh.update_issue_comment(slug, existing["id"], body)

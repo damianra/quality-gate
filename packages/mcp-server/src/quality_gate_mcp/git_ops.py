@@ -148,6 +148,7 @@ def spawn_tracked(
     timeout = timeout if timeout is not None else config.PROCESS_TIMEOUT
     argv = [command, *args]
     pgid = -1
+    started = time.monotonic()
     try:
         proc = subprocess.Popen(
             argv,
@@ -168,6 +169,7 @@ def spawn_tracked(
             "stderr": f"command not found: {command}",
             "timed_out": False,
             "command": argv,
+            "duration_s": round(time.monotonic() - started, 3),
         }
     except OSError as exc:
         return {
@@ -177,6 +179,7 @@ def spawn_tracked(
             "stderr": f"failed to spawn {command}: {exc}",
             "timed_out": False,
             "command": argv,
+            "duration_s": round(time.monotonic() - started, 3),
         }
 
     timed_out = False
@@ -199,6 +202,7 @@ def spawn_tracked(
         "stderr": stderr or "",
         "timed_out": timed_out,
         "command": argv,
+        "duration_s": round(time.monotonic() - started, 3),
     }
 
 

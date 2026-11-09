@@ -26,7 +26,9 @@ custom       openai-compatible     requires ``QG_LLM_BASE_URL``
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -88,6 +90,19 @@ PROVIDERS: dict[str, Provider] = {
         default_model="",
     ),
 }
+
+
+def _normalize_usage(api: str, usage: dict[str, Any]) -> dict[str, int]:
+    """Map provider-specific usage fields to prompt/completion tokens."""
+    if api == "anthropic":
+        return {
+            "prompt_tokens": int(usage.get("input_tokens", 0)),
+            "completion_tokens": int(usage.get("output_tokens", 0)),
+        }
+    return {
+        "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+        "completion_tokens": int(usage.get("completion_tokens", 0)),
+    }
 
 
 class LLMConfigError(ValueError):
@@ -197,8 +212,12 @@ class LLMConfig:
     # Chat
     # ------------------------------------------------------------------ #
 
-    def complete(self, system: str, user: str) -> str:
-        """Single-shot completion. Returns the assistant message text."""
+    def complete_with_meta(self, system: str, user: str) -> dict[str, Any]:
+        """Single-shot completion returning text plus usage/latency metrics.
+
+        ``usage`` is normalized to ``prompt_tokens``/``completion_tokens``
+        across providers (Anthropic reports input/output names).
+        """
         if not self.enabled:
             raise LLMConfigError("LLM is disabled: set QG_LLM_PROVIDER")
         spec = PROVIDERS[self.provider]
@@ -208,17 +227,29 @@ class LLMConfig:
             url, headers, payload = self._openai_request(system, user)
 
         # Never attach headers to raised errors: they carry the API key.
+        started = time.monotonic()
         resp = httpx.post(url, headers=headers, json=payload, timeout=self.timeout)
+        duration_s = round(time.monotonic() - started, 3)
         resp.raise_for_status()
         data = resp.json()
 
         if spec.api == "anthropic":
-            return "".join(
+            text = "".join(
                 block.get("text", "")
                 for block in data.get("content", [])
                 if block.get("type") == "text"
             )
-        return data["choices"][0]["message"]["content"]
+        else:
+            text = data["choices"][0]["message"]["content"]
+        return {
+            "text": text,
+            "duration_s": duration_s,
+            "usage": _normalize_usage(spec.api, data.get("usage") or {}),
+        }
+
+    def complete(self, system: str, user: str) -> str:
+        """Single-shot completion. Returns the assistant message text."""
+        return self.complete_with_meta(system, user)["text"]
 
 
 def load() -> LLMConfig:

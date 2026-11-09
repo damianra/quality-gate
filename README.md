@@ -103,7 +103,17 @@ every variable below with defaults. `compose.yaml` picks it up automatically.
 - `DATABASE_URL` — Postgres checkpointer DSN (optional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — orchestrator inputs
 - `QG_*` — timeouts and scanner thresholds (see `config.py` files)
+- `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` — blast-radius caps: agents
+  review the diff + changed files + direct dependents only, never the
+  whole repo
 - `QG_LLM_*` — optional LLM provider (see below)
+
+### Metrics
+
+Every run reports a `metrics` block (CLI JSON + `**Métricas:**` line in
+the PR verdict): per-node durations, LLM calls with prompt/completion
+tokens, and spawned-process timings — so you can see where time and
+tokens go.
 
 ### LLM provider (optional)
 
