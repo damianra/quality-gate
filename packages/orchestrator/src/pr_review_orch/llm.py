@@ -92,6 +92,11 @@ PROVIDERS: dict[str, Provider] = {
 }
 
 
+# Graph roles that may carry an independent LLM config via
+# QG_LLM_<SETTING>_<ROLE> suffixes (SPEC.md FR-O15).
+ROLES = ("harness", "review", "security", "qa")
+
+
 def _normalize_usage(api: str, usage: dict[str, Any]) -> dict[str, int]:
     """Map provider-specific usage fields to prompt/completion tokens."""
     if api == "anthropic":
@@ -155,6 +160,7 @@ class LLMConfig:
     temperature: float = 0.0
     timeout: float = _DEFAULT_TIMEOUT
     max_tokens: int = 2048
+    role: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "LLMConfig":
@@ -200,6 +206,36 @@ class LLMConfig:
             timeout=float(env.get("QG_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT))),
             max_tokens=int(env.get("QG_LLM_MAX_TOKENS", "2048")),
         )
+
+    @classmethod
+    def for_role(
+        cls, role: str, env: dict[str, str] | None = None
+    ) -> "LLMConfig":
+        """Resolve the LLM config for one graph role (SPEC.md FR-O15).
+
+        ``QG_LLM_<SETTING>_<ROLE>`` overrides the base ``QG_LLM_<SETTING>``
+        for that role only; the base block doubles as the HARNESS config
+        and the shared fallback. Empty suffixed vars are ignored — unset
+        means "inherit". Unknown roles raise ``LLMConfigError``.
+        """
+        env = os.environ if env is None else env
+        suffix = role.strip().upper()
+        if suffix.lower() not in ROLES:
+            raise LLMConfigError(
+                f"unknown role {role!r}; expected one of {list(ROLES)}"
+            )
+        merged = dict(env)
+        marker = f"_{suffix}"
+        for key, value in env.items():
+            if (
+                key.startswith("QG_LLM_")
+                and key.endswith(marker)
+                and value.strip()
+            ):
+                merged[key[: -len(marker)]] = value
+        cfg = cls.from_env(merged)
+        cfg.role = suffix.lower()
+        return cfg
 
     # ------------------------------------------------------------------ #
     # Request construction (kept pure for unit tests)

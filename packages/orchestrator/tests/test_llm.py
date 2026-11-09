@@ -165,3 +165,58 @@ def test_anthropic_response_end_turn_is_not_truncated() -> None:
     )
     assert out["truncated"] is False
     assert out["text"] == "done"
+
+
+def test_for_role_overrides_only_scoped_vars() -> None:
+    env = {
+        "QG_LLM_PROVIDER": "ollama",
+        "QG_LLM_MODEL": "qwen3:8b",
+        "QG_LLM_MAX_TOKENS": "4096",
+        "QG_LLM_PROVIDER_QA": "openrouter",
+        "QG_LLM_MODEL_QA": "cohere/north-mini-code:free",
+        "QG_LLM_API_KEY_QA": "sk-or",
+    }
+    qa = LLMConfig.for_role("qa", env)
+    assert qa.provider == "openrouter"
+    assert qa.model == "cohere/north-mini-code:free"
+    assert qa.api_key == "sk-or"
+    assert qa.max_tokens == 4096  # inherited from base block
+    assert qa.role == "qa"
+
+    harness = LLMConfig.for_role("harness", env)
+    assert harness.provider == "ollama"
+    assert harness.model == "qwen3:8b"
+    assert harness.api_key == ""  # ollama needs no key; QA override does not leak
+
+
+def test_for_role_is_case_insensitive() -> None:
+    env = {"QG_LLM_PROVIDER_SECURITY": "ollama"}
+    cfg = LLMConfig.for_role("SECURITY", env)
+    assert cfg.provider == "ollama"
+    assert cfg.role == "security"
+
+
+def test_for_role_falls_back_to_canonical_key() -> None:
+    env = {
+        "QG_LLM_PROVIDER_REVIEW": "openrouter",
+        "QG_LLM_MODEL_REVIEW": "qwen/qwen3.8-27b:free",
+        "OPENROUTER_API_KEY": "sk-or-canonical",
+    }
+    review = LLMConfig.for_role("review", env)
+    assert review.provider == "openrouter"
+    assert review.api_key == "sk-or-canonical"
+
+
+def test_for_role_empty_override_inherits_base() -> None:
+    env = {
+        "QG_LLM_PROVIDER": "ollama",
+        "QG_LLM_MODEL": "qwen3:8b",
+        "QG_LLM_MODEL_QA": "",  # empty suffix var = unset
+    }
+    qa = LLMConfig.for_role("qa", env)
+    assert qa.model == "qwen3:8b"
+
+
+def test_for_role_unknown_role_rejected() -> None:
+    with pytest.raises(LLMConfigError, match="unknown role"):
+        LLMConfig.for_role("bogus", {})

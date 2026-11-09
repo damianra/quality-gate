@@ -52,6 +52,10 @@ red/green check in CI).
   `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`), `QG_LLM_MODEL`,
   `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`,
   `QG_LLM_MAX_TOKENS`
+- Role scoping: append `_HARNESS`, `_REVIEW`, `_SECURITY` or `_QA` to any
+  `QG_LLM_*` var to give that graph role its own provider, model, key and
+  generation settings. Unset role vars inherit the base block, which is
+  also the harness config (see `.env.example`).
 
 ## Tests
 

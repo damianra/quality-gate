@@ -338,6 +338,7 @@ volatile during early history edits; commits are identified by subject):
 | 16 | `docs`: FR-O14 LLM completion contract + truncation handling |
 | 17 | `feat(orchestrator)`: `truncated`/`finish_reason` in `complete_with_meta` |
 | 18 | `docs`: FR-O15 role-scoped LLM config + FR-O16 wiring contract |
+| 19 | `feat(orchestrator)`: `LLMConfig.for_role` + per-role `.env.example` |
 
 ## 11. Extension points (SDD backlog)
 
