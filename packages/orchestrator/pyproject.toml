@@ -10,10 +10,13 @@ dependencies = [
     "langchain-core>=0.3",
     "langgraph-checkpoint-postgres>=2.0",
     "psycopg[binary]>=3.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.scripts]
 pr-review = "pr_review_orch.__main__:main"
+qg-ingress = "pr_review_orch.ingress:main"
 
 [build-system]
 requires = ["hatchling"]
