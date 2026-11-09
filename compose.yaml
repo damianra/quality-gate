@@ -71,8 +71,13 @@ services:
       QG_MAX_CONCURRENT_RUNS: ${QG_MAX_CONCURRENT_RUNS:-2}
       QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-ollama}
       QG_LLM_MODEL: ${QG_LLM_MODEL:-qwen3:8b}
-      QG_LLM_BASE_URL: ${QG_LLM_BASE_URL:-http://ollama:11434/v1}
+      # Host ollama by default (full machine resources); the "llm" profile
+      # container is the fallback -> then use http://ollama:11434/v1.
+      QG_LLM_BASE_URL: ${QG_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       DRY_RUN: ${DRY_RUN:-false}
+    extra_hosts:
+      # Resolve the host ollama from inside the container (Linux compose).
+      - "host.docker.internal:host-gateway"
     volumes:
       - worktrees:/var/quality-gate/worktrees  # ephemeral qg-* clones
     expose:
@@ -89,7 +94,10 @@ services:
       - "${QG_INGRESS_PORT:-8089}:8089"  # the ONLY public port
     restart: "no"
 
-  # Optional local LLM for the review roles; pull the model once with:
+  # Fallback LLM when the host has no ollama of its own (the ingress
+  # defaults to host.docker.internal). With this profile on, set
+  #   QG_LLM_BASE_URL=http://ollama:11434/v1
+  # and pull the model once:
   #   docker compose exec ollama ollama pull qwen3:8b
   ollama:
     image: ollama/ollama:latest
