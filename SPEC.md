@@ -169,9 +169,18 @@ duration lands in `node_durations`.
   custom}; OpenAI-compatible providers share one code path, Anthropic
   uses Messages API. `QG_LLM_API_KEY` wins over canonical env vars;
   missing key/`QG_LLM_BASE_URL`/`QG_LLM_MODEL` raise `LLMConfigError`.
-  `complete_with_meta` returns `{text, duration_s, usage}` with usage
-  normalized to prompt/completion tokens. Unset provider = fully
-  deterministic review, no LLM calls.
+  `complete_with_meta` returns `{text, duration_s, usage, finish_reason,
+  truncated}` with usage normalized to prompt/completion tokens. Unset
+  provider = fully deterministic review, no LLM calls.
+- **FR-O14 LLM completion contract** — `truncated` is `True` when the
+  provider stopped on a token cap: OpenAI-compatible
+  `finish_reason` ∈ {`length`, `max_tokens`}, Anthropic
+  `stop_reason == "max_tokens"`. A truncated or failed completion MUST
+  NOT silently feed downstream consumers: they degrade to deterministic
+  findings, note "LLM enrichment unavailable", and record the attempt
+  in `llm_calls`. `QG_LLM_MAX_TOKENS` MUST cover the expected response
+  shape — free-tier models with mandatory reasoning burn the budget on
+  chain-of-thought and can return empty `text` with `truncated=True`.
 
 ## 5. Non-functional requirements
 
@@ -307,6 +316,7 @@ volatile during early history edits; commits are identified by subject):
 | 13 | `docs`: mandatory sub-agent delegation in `/pr-review` |
 | 14 | `feat(orchestrator)`: provider-agnostic LLM config |
 | 15 | `feat(orchestrator)`: run metrics + blast-radius scoping |
+| 16 | `docs`: FR-O14 LLM completion contract + truncation handling |
 
 ## 11. Extension points (SDD backlog)
 
