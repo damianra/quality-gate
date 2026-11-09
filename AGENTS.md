@@ -41,9 +41,9 @@ when the change is package-local; cross-cutting commits omit it.
   this file — lands on a dedicated branch named after its change type:
   `feat/...`, `fix/...`, `docs/...`, `ci/...`, `refactor/...`,
   `chore/...`.
-- **Every branch goes through the pr-review workflow** before merging:
-  `.devin/workflows/pr-review.md` locally (delegated to a fresh-context
-  sub-agent) and `.github/workflows/pr-review.yml` on the opened PR.
+- **Every branch goes through the pr-review workflow** before merging —
+  `.devin/workflows/pr-review.md`: a delegated fresh-context sub-agent
+  reviews the gathered evidence and emits the verdict.
 - **The branch is pushed and a PR opened** — even for small fixes —
   so the review evidence (diff, tests, scanner) is attached to a
   mergeable unit. Merging to `main` requires the review verdict to be
