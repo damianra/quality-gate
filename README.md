@@ -154,9 +154,13 @@ QG_ALLOWED_REPOS=your-org/your-repo \
 QG_INGRESS_PORT=8089 \
 docker compose up -d ingress nginx
 
-# optional local LLM for the specialist roles:
+# LLM: the ingress defaults to a HOST ollama (http://localhost:11434,
+# reached via host.docker.internal) so the model gets full machine
+# resources — just `ollama serve` + `ollama pull qwen3:8b` on the host.
+# Only if the host has no ollama, fall back to the container:
 docker compose --profile llm up -d ollama
 docker compose exec ollama ollama pull qwen3:8b
+QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
 ```
 
 Then register `http://<host>:8089/github/webhook` in the repo

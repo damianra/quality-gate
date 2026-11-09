@@ -454,6 +454,7 @@ volatile during early history edits; commits are identified by subject):
 | 29 | `docs`: deployment phase — webhook ingress + ephemeral fetch spec |
 | 30 | `feat(orchestrator)`: webhook ingress + ephemeral PR worktrees |
 | 31 | `build`: service mode — nginx proxy + compose ingress/ollama |
+| 32 | `build`: ingress defaults to host ollama (container = fallback) |
 
 ## 11. Extension points (SDD backlog)
 
