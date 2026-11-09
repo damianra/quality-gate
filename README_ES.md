@@ -109,6 +109,26 @@ levanta automáticamente.
 - `DATABASE_URL` — DSN del checkpointer Postgres (opcional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — inputs del orquestador
 - `QG_*` — timeouts y umbrales del scanner (ver `config.py` de cada paquete)
+- `QG_LLM_*` — proveedor de LLM opcional (ver abajo)
+
+### Proveedor de LLM (opcional)
+
+La revisión es determinística por defecto. Definir `QG_LLM_PROVIDER`
+habilita enriquecimiento con LLM en el orquestador; las claves viven solo
+en variables de entorno (`QG_LLM_API_KEY` o la variable canónica del
+proveedor).
+
+| `QG_LLM_PROVIDER` | Variable de clave (fallback) | Base URL por defecto |
+|---|---|---|
+| `ollama` | — (sin clave) | `http://localhost:11434/v1` |
+| `openai` | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` |
+| `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `custom` | `QG_LLM_API_KEY` | requiere `QG_LLM_BASE_URL` |
+
+Cada proveedor trae un modelo por defecto; se sobreescribe con
+`QG_LLM_MODEL`.
 
 ## CI
 

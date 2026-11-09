@@ -5,6 +5,7 @@ description = "Stateful LangGraph orchestrator that reviews PRs using determinis
 requires-python = ">=3.11"
 dependencies = [
     "quality-gate-mcp",
+    "httpx>=0.27",
     "langgraph>=0.2",
     "langchain-core>=0.3",
     "langgraph-checkpoint-postgres>=2.0",

@@ -103,6 +103,24 @@ every variable below with defaults. `compose.yaml` picks it up automatically.
 - `DATABASE_URL` — Postgres checkpointer DSN (optional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — orchestrator inputs
 - `QG_*` — timeouts and scanner thresholds (see `config.py` files)
+- `QG_LLM_*` — optional LLM provider (see below)
+
+### LLM provider (optional)
+
+The review is deterministic by default. Setting `QG_LLM_PROVIDER` enables
+LLM-backed enrichment in the orchestrator; keys stay in env vars only
+(`QG_LLM_API_KEY` or the provider's canonical variable).
+
+| `QG_LLM_PROVIDER` | Key env (fallback) | Default base URL |
+|---|---|---|
+| `ollama` | — (no key) | `http://localhost:11434/v1` |
+| `openai` | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` |
+| `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `custom` | `QG_LLM_API_KEY` | requires `QG_LLM_BASE_URL` |
+
+Each provider ships a default model; override with `QG_LLM_MODEL`.
 
 ## CI
 
