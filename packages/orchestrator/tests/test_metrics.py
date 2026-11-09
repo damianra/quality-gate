@@ -169,7 +169,7 @@ def test_persist_run_noop_without_dsn(monkeypatch) -> None:
     monkeypatch.setattr(metrics.config, "DATABASE_URL", "")
     called: list = []
     monkeypatch.setattr(metrics.psycopg, "connect",
-                        lambda dsn: called.append(dsn))
+                        lambda *a, **kw: called.append(a[0]))
     metrics.persist_run(_full_state(), "run-1")           # falls back to env
     metrics.persist_run(_full_state(), "run-1", dsn="")   # explicit empty
     assert called == []
@@ -177,7 +177,8 @@ def test_persist_run_noop_without_dsn(monkeypatch) -> None:
 
 def test_persist_run_writes_rows(monkeypatch) -> None:
     conn = _FakeConn()
-    monkeypatch.setattr(metrics.psycopg, "connect", lambda dsn: conn)
+    monkeypatch.setattr(metrics.psycopg, "connect",
+                        lambda *a, **kw: conn)
     metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
 
     kinds = [k for k, *_ in conn.cur.calls]
@@ -193,7 +194,7 @@ def test_persist_run_writes_rows(monkeypatch) -> None:
 
 
 def test_persist_run_swallows_db_errors(monkeypatch) -> None:
-    def boom(dsn):
+    def boom(*a, **kw):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(metrics.psycopg, "connect", boom)

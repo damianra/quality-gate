@@ -219,7 +219,8 @@ def persist_run(
     if not dsn:
         return
     try:
-        with psycopg.connect(dsn) as conn:
+        # Bounded connect: a hung Postgres must not stall the run either.
+        with psycopg.connect(dsn, connect_timeout=5) as conn:
             with conn.cursor() as cur:
                 for ddl in _DDL:
                     cur.execute(ddl)
