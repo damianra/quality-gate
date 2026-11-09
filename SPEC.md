@@ -166,8 +166,9 @@ duration lands in `node_durations`.
   `QG_SCOPE_MAX_CHARS`; `truncated` flag reports when caps kicked in.
 - **FR-O13 LLM provider (optional)** — `llm.py` resolves
   `QG_LLM_PROVIDER` ∈ {ollama, openai, anthropic, nvidia, openrouter,
-  custom}; OpenAI-compatible providers share one code path, Anthropic
-  uses Messages API. `QG_LLM_API_KEY` wins over canonical env vars;
+  custom, devin-cli}; OpenAI-compatible providers share one code path,
+  Anthropic uses Messages API, devin-cli spawns a local agent
+  subprocess (FR-O17). `QG_LLM_API_KEY` wins over canonical env vars;
   missing key/`QG_LLM_BASE_URL`/`QG_LLM_MODEL` raise `LLMConfigError`.
   `complete_with_meta` returns `{text, duration_s, usage, finish_reason,
   truncated}` with usage normalized to prompt/completion tokens. Unset
@@ -200,6 +201,20 @@ duration lands in `node_durations`.
   `truncated=True`, or missing credentials the node MUST degrade to
   deterministic findings with an "LLM enrichment unavailable" note —
   LLM failure alone never rejects a PR.
+- **FR-O17 CLI-backed provider (`devin-cli`)** — runs a local agent CLI
+  as a tracked subprocess instead of an HTTP API:
+  `devin --print --permission-mode auto --respect-workspace-trust false
+  --verbosity 0 [--model M]` with system+user concatenated as the
+  prompt; argv-only, `shell=True` forbidden. `needs_key` is false —
+  auth lives in the Devin session (`devin auth`), never in env vars.
+  Completion metadata includes `pgid`, which the caller MUST append to
+  `active_pgids` for the cleanup node; `timeout` comes from
+  `QG_LLM_TIMEOUT`. `text` is process stdout, `usage` zeros,
+  `finish_reason`/`truncated` are `None`/`False` (no token-cap
+  signal); non-zero exit or timeout raises for the caller to degrade
+  per FR-O16. `QG_LLM_MODEL` is optional — unset selects the CLI's
+  configured default model. Costs ride on the Devin account, not the
+  free tier.
 
 ## 5. Non-functional requirements
 
@@ -340,6 +355,7 @@ volatile during early history edits; commits are identified by subject):
 | 18 | `docs`: FR-O15 role-scoped LLM config + FR-O16 wiring contract |
 | 19 | `feat(orchestrator)`: `LLMConfig.for_role` + per-role `.env.example` |
 | 20 | `docs`: role-scoped LLM config in both root READMEs |
+| 21 | `docs`: FR-O17 devin-cli provider + dead free-model slug fix |
 
 ## 11. Extension points (SDD backlog)
 

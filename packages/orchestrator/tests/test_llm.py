@@ -199,7 +199,7 @@ def test_for_role_is_case_insensitive() -> None:
 def test_for_role_falls_back_to_canonical_key() -> None:
     env = {
         "QG_LLM_PROVIDER_REVIEW": "openrouter",
-        "QG_LLM_MODEL_REVIEW": "qwen/qwen3.8-27b:free",
+        "QG_LLM_MODEL_REVIEW": "nvidia/nemotron-3.5-lightning:free",
         "OPENROUTER_API_KEY": "sk-or-canonical",
     }
     review = LLMConfig.for_role("review", env)
