@@ -219,16 +219,19 @@ duration lands in `node_durations`.
   gets an independent provider/model/key/base_url/temperature/timeout/
   max_tokens, e.g. harness on local Ollama while specialists use
   OpenRouter `:free` models. Unknown roles raise `LLMConfigError`.
-- **FR-O16 Specialist LLM wiring** — the harness node uses its role
-  config to build each specialist's payload from `pr_context` (falling
-  back to raw `pr_context` on failure); specialist nodes call
-  `complete_with_meta` with their own role config, merge the structured
-  response into `findings`, and record `{role, provider, model,
-  duration_s, usage, truncated}` in `llm_calls`. Calls run concurrently
-  inside the existing parallel fan-out. On provider error,
-  `truncated=True`, or missing credentials the node MUST degrade to
-  deterministic findings with an "LLM enrichment unavailable" note —
-  LLM failure alone never rejects a PR.
+- **FR-O16 Specialist LLM wiring** — each specialist node builds its
+  payload directly from `pr_context` (bounded diff + changed files +
+  deterministic signals) and calls `complete_with_meta` with its own
+  role config; the structured JSON response is merged into `findings`
+  (titles prefixed `LLM:`) and the call is recorded in `llm_calls`
+  (`{role, node, provider, model, duration_s, usage, finish_reason,
+  truncated, status}` — `status` ∈ `ok|error|truncated|unparseable`).
+  Wired: `review`, `security`; `qa` stays deterministic (its evidence
+  is process output, not prose). Calls run concurrently inside the
+  existing parallel fan-out. On provider error, `truncated=True`,
+  unparseable output, or missing credentials the node MUST degrade to
+  deterministic findings with an "LLM enrichment …" info note — LLM
+  failure alone never rejects a PR.
 - **FR-O17 CLI-backed provider (`devin-cli`)** — runs a local agent CLI
   as a tracked subprocess instead of an HTTP API:
   `devin --print --permission-mode auto --respect-workspace-trust false
@@ -455,18 +458,21 @@ volatile during early history edits; commits are identified by subject):
 | 30 | `feat(orchestrator)`: webhook ingress + ephemeral PR worktrees |
 | 31 | `build`: service mode — nginx proxy + compose ingress/ollama |
 | 32 | `build`: ingress defaults to host ollama (container = fallback) |
+| 33 | `feat(orchestrator)`: FR-O16 LLM-enrichment helper + contract |
+| 34 | `feat(orchestrator)`: wire review specialist to role LLM |
+| 35 | `feat(orchestrator)`: wire security specialist to role LLM |
+| 36 | `docs`: FR-O16 implemented design in SPEC + READMEs |
 
 ## 11. Extension points (SDD backlog)
 
 Planned hooks already shaped by the codebase — spec them here before
 implementing:
 
-- **LLM-enriched specialists** — role-scoped config (FR-O15),
-  truncation flag (FR-O14) and `pr_context` are in place; specialists
-  currently run deterministic-only. Remaining per FR-O16: prompt
-  contracts, node wiring, `llm_calls` recording. Wiring lands with the
-  service phase (FR-O19..O22) where ollama/qwen is the default provider
-  (§2.3).
+- **LLM-enriched specialists** — wired for `review`/`security`
+  (FR-O16): role-scoped config (FR-O15), bounded `pr_context` payload,
+  `llm_calls` recording, degrade-to-info on failure. Remaining: `qa`
+  role (process-output contract instead of findings) and a harness
+  summarization step if payload size ever beats the scope budget.
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
