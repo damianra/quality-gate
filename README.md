@@ -132,6 +132,12 @@ LLM-backed enrichment in the orchestrator; keys stay in env vars only
 
 Each provider ships a default model; override with `QG_LLM_MODEL`.
 
+Every `QG_LLM_*` var also accepts a role suffix — `_HARNESS`, `_REVIEW`,
+`_SECURITY` or `_QA` — to configure that graph role independently (e.g.
+`QG_LLM_MODEL_QA`). The base block is the harness config and the shared
+fallback, so a local Ollama can drive the harness while specialists run
+on OpenRouter `:free` models (see `.env.example`).
+
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — `paths:`-filtered unit tests.

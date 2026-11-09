@@ -140,6 +140,13 @@ proveedor).
 Cada proveedor trae un modelo por defecto; se sobreescribe con
 `QG_LLM_MODEL`.
 
+Toda variable `QG_LLM_*` acepta además un sufijo de rol — `_HARNESS`,
+`_REVIEW`, `_SECURITY` o `_QA` — para configurar ese rol del grafo de
+forma independiente (p.ej. `QG_LLM_MODEL_QA`). El bloque base es la
+configuración del harness y el fallback compartido, de modo que un
+Ollama local puede manejar el harness mientras los especialistas usan
+modelos `:free` de OpenRouter (ver `.env.example`).
+
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — tests unitarios filtrados por `paths:`.
