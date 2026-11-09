@@ -169,7 +169,10 @@ QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
 
 Then register `http://<host>:8089/github/webhook` in the repo
 (Settings → Webhooks): content type `application/json`, secret =
-`GITHUB_WEBHOOK_SECRET`, events: Pull requests.
+`GITHUB_WEBHOOK_SECRET`, events: Pull requests. For local testing the
+endpoint can be published through a tunnel instead — see
+[docs/local-webhook-setup.md](docs/local-webhook-setup.md) for the
+full bring-up, exposure options, webhook settings and teardown.
 
 Public-exposure controls (FR-O19..O22, INV-6): nginx is the only public
 surface (10 r/s per IP, 1 MB body cap, only the webhook path proxied);
