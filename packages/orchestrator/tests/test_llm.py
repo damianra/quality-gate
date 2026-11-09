@@ -241,11 +241,11 @@ def test_devin_cli_argv_is_read_only_and_shell_free() -> None:
 
 def test_devin_cli_argv_includes_model_when_set() -> None:
     cfg = LLMConfig.from_env(
-        {"QG_LLM_PROVIDER": "devin-cli", "QG_LLM_MODEL": "opus"}
+        {"QG_LLM_PROVIDER": "devin-cli", "QG_LLM_MODEL": "swe-2-high"}
     )
     argv = cfg._devin_cli_argv("sys", "user")
     i = argv.index("--model")
-    assert argv[i + 1] == "opus"
+    assert argv[i + 1] == "swe-2-high"
 
 
 def _fake_spawn(result):
