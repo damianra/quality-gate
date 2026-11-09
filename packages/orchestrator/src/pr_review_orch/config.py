@@ -37,6 +37,10 @@ ALLOWED_REPOS = [
     if r.strip()
 ]
 
+#: Interface the ingress uvicorn binds. Loopback by default (bare host);
+#: compose sets 0.0.0.0 so nginx reaches it over the internal network.
+INGRESS_HOST = os.environ.get("QG_INGRESS_HOST", "127.0.0.1")
+
 #: Loopback port the ingress uvicorn binds; nginx owns the public port.
 INGRESS_PORT = int(os.environ.get("QG_INGRESS_PORT", "8088"))
 
