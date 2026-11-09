@@ -292,7 +292,15 @@ def review_specialist(state: dict[str, Any]) -> dict[str, Any]:
             "review", "warning", "Debug leftovers",
             f"{len(s['debug_leftovers'])} console.log/debugger statement(s) added."))
 
-    return {"findings": findings}
+    # FR-O16: optional LLM pass with the review role config; degrades to
+    # info notes on any failure — never removes deterministic findings.
+    enrich = _llm_enrich("review", REVIEW_PROMPT, state)
+    findings += enrich["findings"]
+    return {
+        "findings": findings,
+        "llm_calls": enrich["llm_calls"],
+        "active_pgids": enrich["active_pgids"],
+    }
 
 
 # --------------------------------------------------------------------------- #

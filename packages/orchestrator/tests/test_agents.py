@@ -196,3 +196,32 @@ def test_llm_findings_clamps_bad_severity_and_caps():
     assert len(out) == agents._LLM_MAX_FINDINGS
     assert all(f["severity"] == "info" for f in out)
     assert all(f["title"].startswith("LLM: ") for f in out)
+
+
+# -- wiring ------------------------------------------------------------------- #
+
+
+def test_review_specialist_merges_llm_enrichment(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"severity": "warning", "title": "Scope smell",'
+                ' "detail": "diff touches unrelated dirs", "file": null}]',
+        "usage": {"prompt_tokens": 5, "completion_tokens": 6},
+        "finish_reason": "stop", "truncated": False, "duration_s": 0.9,
+    })
+    out = agents.review_specialist(_state(
+        signals={"debug_leftovers": ["console.log(1)"]}))
+    titles = {f["title"] for f in out["findings"]}
+    assert "Debug leftovers" in titles        # deterministic pass kept
+    assert "LLM: Scope smell" in titles       # enrichment merged
+    assert out["llm_calls"][0]["role"] == "review"
+    assert out["active_pgids"] == []
+
+
+def test_review_specialist_deterministic_when_llm_disabled(monkeypatch):
+    monkeypatch.setattr(
+        agents.llm.LLMConfig, "for_role",
+        classmethod(lambda cls, role, env=None: agents.llm.LLMConfig()),
+    )
+    out = agents.review_specialist(_state())
+    assert out["llm_calls"] == []
+    assert out["active_pgids"] == []
