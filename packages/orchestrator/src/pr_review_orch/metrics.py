@@ -26,6 +26,10 @@ from . import config
 
 logger = logging.getLogger("pr-review-orch.metrics")
 
+#: Schema bootstrap runs once per process; a failed DDL leaves it False
+#: so the next run retries (FR-O18 bootstrap-on-write).
+_SCHEMA_READY = False
+
 
 def node_duration(node: str, started: float) -> dict[str, Any]:
     """Duration entry for one graph node."""
@@ -175,33 +179,43 @@ def _run_row(state: dict[str, Any], run_id: str) -> tuple[Any, ...]:
 
 
 def _call_rows(state: dict[str, Any], run_id: str) -> list[tuple[Any, ...]]:
-    """One column tuple per ``llm_calls`` entry (FR-O16 shape, tolerant)."""
+    """One column tuple per ``llm_calls`` entry (FR-O16 shape, tolerant).
+
+    Each entry is built in isolation: a malformed call dict is skipped
+    and logged instead of aborting persistence for the whole run.
+    """
     rows = []
-    for call in state.get("llm_calls", []):
-        usage = call.get("usage") or {}
-        prompt = int(usage.get("prompt_tokens", 0) or 0)
-        completion = int(usage.get("completion_tokens", 0) or 0)
-        cost = call.get("cost_usd", usage.get("cost", usage.get("cost_usd")))
-        rows.append((
-            run_id,
-            state.get("repo_path", ""),
-            int(state.get("pr_number", 0)),
-            state.get("head_sha", ""),
-            call.get("role"),
-            call.get("node"),
-            call.get("provider"),
-            call.get("model"),
-            prompt,
-            completion,
-            prompt + completion,
-            cost,
-            call.get("duration_s"),
-            call.get("finish_reason"),
-            bool(call.get("truncated", False)),
-            call.get("status", "ok"),
-            call.get("error"),
-            Jsonb(call),
-        ))
+    for i, call in enumerate(state.get("llm_calls", [])):
+        try:
+            usage = call.get("usage") or {}
+            prompt = int(usage.get("prompt_tokens", 0) or 0)
+            completion = int(usage.get("completion_tokens", 0) or 0)
+            cost = call.get(
+                "cost_usd", usage.get("cost", usage.get("cost_usd"))
+            )
+            rows.append((
+                run_id,
+                state.get("repo_path", ""),
+                int(state.get("pr_number", 0)),
+                state.get("head_sha", ""),
+                call.get("role"),
+                call.get("node"),
+                call.get("provider"),
+                call.get("model"),
+                prompt,
+                completion,
+                prompt + completion,
+                cost,
+                call.get("duration_s"),
+                call.get("finish_reason"),
+                bool(call.get("truncated", False)),
+                call.get("status", "ok"),
+                call.get("error"),
+                Jsonb(call),
+            ))
+        except Exception:  # noqa: BLE001 - skip the bad row, keep the rest
+            logger.warning("skipping malformed llm_calls entry %d", i,
+                           exc_info=True)
     return rows
 
 
@@ -218,14 +232,18 @@ def persist_run(
     dsn = config.DATABASE_URL if dsn is None else dsn
     if not dsn:
         return
+    global _SCHEMA_READY
     try:
         # Bounded connect: a hung Postgres must not stall the run either.
         with psycopg.connect(dsn, connect_timeout=5) as conn:
             with conn.cursor() as cur:
-                for ddl in _DDL:
-                    cur.execute(ddl)
+                if not _SCHEMA_READY:
+                    for ddl in _DDL:
+                        cur.execute(ddl)
+                    _SCHEMA_READY = True
                 cur.execute(_RUN_INSERT, _run_row(state, run_id))
-                cur.executemany(_CALL_INSERT, _call_rows(state, run_id))
+                for row in _call_rows(state, run_id):
+                    cur.execute(_CALL_INSERT, row)
             conn.commit()
     except Exception:  # noqa: BLE001 - telemetry must never kill a run
         logger.warning("run metrics persistence failed", exc_info=True)
