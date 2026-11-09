@@ -462,6 +462,7 @@ volatile during early history edits; commits are identified by subject):
 | 34 | `feat(orchestrator)`: wire review specialist to role LLM |
 | 35 | `feat(orchestrator)`: wire security specialist to role LLM |
 | 36 | `docs`: FR-O16 implemented design in SPEC + READMEs |
+| 37 | `docs`: local webhook exposure guide (`docs/`) |
 
 ## 11. Extension points (SDD backlog)
 
