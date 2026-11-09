@@ -231,8 +231,14 @@ def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False) -> dict
 
         with PostgresSaver.from_conn_string(config.DATABASE_URL) as checkpointer:
             checkpointer.setup()
-            return _invoke(build_graph(checkpointer), initial, run_config)
+            final = _invoke(build_graph(checkpointer), initial, run_config)
+    else:
+        from langgraph.checkpoint.memory import InMemorySaver
 
-    from langgraph.checkpoint.memory import InMemorySaver
+        final = _invoke(build_graph(InMemorySaver()), initial, run_config)
 
-    return _invoke(build_graph(InMemorySaver()), initial, run_config)
+    # FR-O18: persist task telemetry; best-effort, never raises.
+    metrics.persist_run(
+        final, run_id=run_config["configurable"]["thread_id"]
+    )
+    return final

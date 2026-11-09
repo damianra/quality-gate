@@ -57,3 +57,144 @@ def test_summary_line_minimal_run() -> None:
         {"started_at": time.monotonic(), "node_durations": [],
          "llm_calls": [], "processes": []}))
     assert "total" in line and "LLM" not in line
+
+
+# --------------------------------------------------------------------------- #
+# FR-O18 persistence
+# --------------------------------------------------------------------------- #
+
+
+def _full_state() -> dict:
+    return {
+        "repo_path": "/tmp/quality-gate",
+        "pr_number": 7,
+        "head_sha": "abc1234",
+        "dry_run": True,
+        "verdict": {"approve": True},
+        "findings": [
+            {"severity": "warning"},
+            {"severity": "info"},
+            {"severity": "info"},
+        ],
+        "llm_calls": [
+            {"role": "review", "node": "review", "provider": "openrouter",
+             "model": "nvidia/nemotron-3.5-lightning:free",
+             "duration_s": 1.25,
+             "usage": {"prompt_tokens": 900, "completion_tokens": 120},
+             "finish_reason": "stop", "truncated": False,
+             "cost_usd": 0.0},
+            {"role": "security", "provider": "devin-cli",
+             "model": "swe-2-high", "duration_s": 42.0,
+             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+             "finish_reason": None, "truncated": False, "pgid": 1234},
+        ],
+        "started_at": time.monotonic() - 5,
+        "node_durations": [{"node": "router", "duration_s": 1.0}],
+        "processes": [
+            {"agent": "qa", "command": ["tsc"], "duration_s": 0.5,
+             "exit_code": 0},
+        ],
+    }
+
+
+def test_run_row_maps_task_fields() -> None:
+    row = metrics._run_row(_full_state(), "pr-review/quality-gate/7")
+    (run_id, repo, pr, sha, dry, _dur, approve, blockers, warnings, infos,
+     calls, prompt, completion, total, nodes, procs, report) = row
+    assert run_id == "pr-review/quality-gate/7"
+    assert repo == "/tmp/quality-gate" and pr == 7 and sha == "abc1234"
+    assert dry is True and approve is True
+    assert (blockers, warnings, infos) == (0, 1, 2)
+    assert calls == 2 and prompt == 900 and completion == 120
+    assert total == 1020
+    assert isinstance(nodes, metrics.Jsonb)
+    assert isinstance(procs, metrics.Jsonb)
+    assert isinstance(report, metrics.Jsonb)
+
+
+def test_call_rows_map_per_call_fields() -> None:
+    rows = metrics._call_rows(_full_state(), "run-1")
+    assert len(rows) == 2
+    api_call = rows[0]
+    assert api_call[4] == "review" and api_call[5] == "review"
+    assert api_call[6] == "openrouter"
+    assert api_call[7] == "nvidia/nemotron-3.5-lightning:free"
+    assert api_call[8:11] == (900, 120, 1020)
+    assert api_call[11] == 0.0          # cost_usd from the call dict
+    assert api_call[13] == "stop"       # finish_reason
+    cli_call = rows[1]
+    assert cli_call[6] == "devin-cli" and cli_call[7] == "swe-2-high"
+    assert cli_call[10] == 0            # subprocess usage is zeroed
+    assert cli_call[15] == "ok"         # status default
+    assert cli_call[16] is None         # no error
+    assert isinstance(cli_call[17], metrics.Jsonb)
+
+
+class _FakeCursor:
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> bool:
+        return False
+
+    def execute(self, sql, params=None) -> None:
+        self.calls.append(("execute", sql, params))
+
+    def executemany(self, sql, seq) -> None:
+        self.calls.append(("executemany", sql, list(seq)))
+
+
+class _FakeConn:
+    def __init__(self) -> None:
+        self.cur = _FakeCursor()
+        self.committed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> bool:
+        return False
+
+    def cursor(self):
+        return self.cur
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+def test_persist_run_noop_without_dsn(monkeypatch) -> None:
+    monkeypatch.setattr(metrics.config, "DATABASE_URL", "")
+    called: list = []
+    monkeypatch.setattr(metrics.psycopg, "connect",
+                        lambda dsn: called.append(dsn))
+    metrics.persist_run(_full_state(), "run-1")           # falls back to env
+    metrics.persist_run(_full_state(), "run-1", dsn="")   # explicit empty
+    assert called == []
+
+
+def test_persist_run_writes_rows(monkeypatch) -> None:
+    conn = _FakeConn()
+    monkeypatch.setattr(metrics.psycopg, "connect", lambda dsn: conn)
+    metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
+
+    kinds = [k for k, *_ in conn.cur.calls]
+    assert kinds.count("execute") == 3      # 2 DDL + 1 run insert
+    assert kinds.count("executemany") == 1  # llm call batch
+
+    run_insert = conn.cur.calls[2]
+    assert run_insert[2][0] == "run-1"      # first param is run_id
+    call_batch = conn.cur.calls[3][2]
+    assert len(call_batch) == 2
+    assert call_batch[0][6] == "openrouter"
+    assert conn.committed
+
+
+def test_persist_run_swallows_db_errors(monkeypatch) -> None:
+    def boom(dsn):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(metrics.psycopg, "connect", boom)
+    metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
