@@ -148,6 +148,37 @@ configuración del harness y el fallback compartido, de modo que un
 Ollama local puede manejar el harness mientras los especialistas usan
 modelos `:free` de OpenRouter (ver `.env.example`).
 
+## Modo servicio (webhook)
+
+El stack también puede correr como servicio en vez de por invocación:
+nginx expone UN solo puerto público, el ingress verifica y encola los
+webhooks `pull_request` de GitHub, cada evento aceptado clona el head
+del PR en un worktree efímero, y el grafo publica el veredicto en el PR
+(las métricas caen en `run_metrics` / `llm_call_metrics`).
+
+```bash
+GITHUB_TOKEN=ghp_... \
+GITHUB_WEBHOOK_SECRET=<secret del webhook del repo> \
+QG_ALLOWED_REPOS=your-org/your-repo \
+QG_INGRESS_PORT=8089 \
+docker compose up -d ingress nginx
+
+# LLM local opcional para los roles de especialistas:
+docker compose --profile llm up -d ollama
+docker compose exec ollama ollama pull qwen3:8b
+```
+
+Después registrá `http://<host>:8089/github/webhook` en el repo
+(Settings → Webhooks): content type `application/json`, secret =
+`GITHUB_WEBHOOK_SECRET`, eventos: Pull requests.
+
+Controles de exposición pública (FR-O19..O22, INV-6): nginx es la única
+superficie pública (10 r/s por IP, body cap de 1 MB, solo el path del
+webhook se proxeea); todo payload se verifica por HMAC antes de
+parsear; `QG_ALLOWED_REPOS` es deny-by-default; el token llega a git
+solo vía headers de env; cada worktree se borra tras su run más un
+sweep de arranque.
+
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — tests unitarios filtrados por `paths:`.

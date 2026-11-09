@@ -205,7 +205,7 @@ def main() -> None:
         logger.warning(
             "GITHUB_WEBHOOK_SECRET unset — every payload will be rejected"
         )
-    uvicorn.run(app, host="127.0.0.1", port=config.INGRESS_PORT)
+    uvicorn.run(app, host=config.INGRESS_HOST, port=config.INGRESS_PORT)
 
 
 if __name__ == "__main__":

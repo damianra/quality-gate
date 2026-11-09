@@ -48,5 +48,59 @@ services:
       - ${REPO_UNDER_TEST:-./target-repo}:/work
     restart: "no"
 
+  # --- Service mode (FR-O19..O22): webhook -> clone -> review -> comment -- #
+
+  ingress:
+    build:
+      context: .
+      dockerfile: packages/orchestrator/Dockerfile
+    command: ["python", "-m", "pr_review_orch.ingress"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      DATABASE_URL: postgresql://qualitygate:qualitygate@postgres:5432/qualitygate
+      QG_ALLOWED_REPOS: ${QG_ALLOWED_REPOS:-}
+      QG_INGRESS_HOST: 0.0.0.0     # internal net only; nginx is the public surface
+      QG_INGRESS_PORT: 8088
+      QG_WORKTREE_ROOT: /var/quality-gate/worktrees
+      QG_CLONE_TIMEOUT: ${QG_CLONE_TIMEOUT:-300}
+      QG_MAX_WORKTREE_BYTES: ${QG_MAX_WORKTREE_BYTES:-2147483648}
+      QG_MAX_CONCURRENT_RUNS: ${QG_MAX_CONCURRENT_RUNS:-2}
+      QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-ollama}
+      QG_LLM_MODEL: ${QG_LLM_MODEL:-qwen3:8b}
+      QG_LLM_BASE_URL: ${QG_LLM_BASE_URL:-http://ollama:11434/v1}
+      DRY_RUN: ${DRY_RUN:-false}
+    volumes:
+      - worktrees:/var/quality-gate/worktrees  # ephemeral qg-* clones
+    expose:
+      - "8088"  # compose network only — never published
+    restart: "no"
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - ingress
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${QG_INGRESS_PORT:-8089}:8089"  # the ONLY public port
+    restart: "no"
+
+  # Optional local LLM for the review roles; pull the model once with:
+  #   docker compose exec ollama ollama pull qwen3:8b
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    volumes:
+      - ollama-models:/root/.ollama
+    expose:
+      - "11434"
+    restart: "no"
+
 volumes:
   pgdata:
+  worktrees:
+  ollama-models:

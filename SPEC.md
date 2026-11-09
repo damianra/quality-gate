@@ -383,7 +383,7 @@ All via env vars; `.env.example` is the canonical template.
 | Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
-| Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
+| Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
 
 ## 8. Delivery surfaces
 
@@ -452,6 +452,8 @@ volatile during early history edits; commits are identified by subject):
 | 27 | `feat(orchestrator)`: `metrics.persist_run` → Postgres |
 | 28 | `fix(orchestrator)`: metrics resilience — per-row isolation, DDL memo |
 | 29 | `docs`: deployment phase — webhook ingress + ephemeral fetch spec |
+| 30 | `feat(orchestrator)`: webhook ingress + ephemeral PR worktrees |
+| 31 | `build`: service mode — nginx proxy + compose ingress/ollama |
 
 ## 11. Extension points (SDD backlog)
 
