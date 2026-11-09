@@ -215,6 +215,25 @@ duration lands in `node_durations`.
   per FR-O16. `QG_LLM_MODEL` is optional — unset selects the CLI's
   configured default model. Costs ride on the Devin account, not the
   free tier.
+- **FR-O18 Persistent run metrics** — when `DATABASE_URL` is set,
+  `run_pr_review` persists task telemetry to Postgres after the graph
+  finishes, enabling usage/cost measurement per task and per model.
+  Two tables, bootstrapped with `CREATE TABLE IF NOT EXISTS` on write
+  (no migration step):
+  - `run_metrics` — one row per task, keyed by `run_id` (the
+    checkpointer thread id `pr-review/{slug}/{pr}`): repo, `pr_number`,
+    `head_sha`, `dry_run`, `duration_s`, verdict outcome and finding
+    counts,
+    `node_durations` and process detail as `jsonb`, plus the full
+    `metrics` summary report as `jsonb`.
+  - `llm_call_metrics` — one row per model call in the task: `role`,
+    `provider`, `model`, `prompt/completion/total_tokens`, `cost_usd`
+    (when the provider reports one — OpenRouter does; else NULL),
+    `duration_s`, `finish_reason`, `truncated`, `status`
+    (`ok|error|degraded`), `error`, and `raw` jsonb carrying every field
+    the provider returned so nothing is lost.
+  Persistence MUST never break a run: write failures are logged and
+  swallowed, and the call is a no-op without `DATABASE_URL`.
 
 ## 5. Non-functional requirements
 
@@ -342,6 +361,8 @@ volatile during early history edits; commits are identified by subject):
 | 5 | `build`: OCI images + compose stack |
 | 6 | `ci`: path-filtered CI + pr-review workflow |
 | 7 | `docs`: bilingual READMEs |
+| 26 | `docs`: FR-O18 persistent run metrics tables |
+| 27 | `feat(orchestrator)`: `metrics.persist_run` → Postgres |
 | 8 | `docs`: `.env.example` template |
 | 9 | `docs`: AGENTS.md + `/pr-review` sub-agent workflow |
 | 10 | `revert` of a docs change (churn, resolved in place) |
