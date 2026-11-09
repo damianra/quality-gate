@@ -176,21 +176,50 @@ def test_persist_run_noop_without_dsn(monkeypatch) -> None:
 
 
 def test_persist_run_writes_rows(monkeypatch) -> None:
+    monkeypatch.setattr(metrics, "_SCHEMA_READY", False)
     conn = _FakeConn()
     monkeypatch.setattr(metrics.psycopg, "connect",
                         lambda *a, **kw: conn)
     metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
 
     kinds = [k for k, *_ in conn.cur.calls]
-    assert kinds.count("execute") == 3      # 2 DDL + 1 run insert
-    assert kinds.count("executemany") == 1  # llm call batch
+    # 2 DDL (first call in process) + 1 run insert + 2 call inserts
+    assert kinds.count("execute") == 5
 
     run_insert = conn.cur.calls[2]
     assert run_insert[2][0] == "run-1"      # first param is run_id
-    call_batch = conn.cur.calls[3][2]
-    assert len(call_batch) == 2
-    assert call_batch[0][6] == "openrouter"
+    first_call_insert = conn.cur.calls[3][2]
+    assert first_call_insert[6] == "openrouter"
     assert conn.committed
+
+
+def test_persist_run_runs_ddl_once_per_process(monkeypatch) -> None:
+    monkeypatch.setattr(metrics, "_SCHEMA_READY", False)
+    conn = _FakeConn()
+    monkeypatch.setattr(metrics.psycopg, "connect",
+                        lambda *a, **kw: conn)
+    metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
+    metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
+
+    ddl_count = sum(
+        1 for _k, sql, _p in conn.cur.calls if "CREATE TABLE" in sql
+    )
+    assert ddl_count == 2  # only the first persist_run ran the DDLs
+
+
+def test_call_rows_skips_malformed_entry() -> None:
+    state = _full_state()
+    state["llm_calls"] = [
+        {"role": "review", "provider": "openrouter", "model": "m",
+         "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+        "not-a-dict",  # malformed entry
+        {"role": "qa", "provider": "ollama", "model": "qwen3:8b",
+         "usage": "also-not-a-dict"},
+    ]
+    rows = metrics._call_rows(state, "run-1")
+    assert len(rows) == 1                  # only the healthy entry
+    assert rows[0][6] == "openrouter"
+    assert rows[0][8:11] == (10, 5, 15)
 
 
 def test_persist_run_swallows_db_errors(monkeypatch) -> None:

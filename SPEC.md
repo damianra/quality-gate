@@ -363,6 +363,7 @@ volatile during early history edits; commits are identified by subject):
 | 7 | `docs`: bilingual READMEs |
 | 26 | `docs`: FR-O18 persistent run metrics tables |
 | 27 | `feat(orchestrator)`: `metrics.persist_run` → Postgres |
+| 28 | `fix(orchestrator)`: metrics resilience — per-row isolation, DDL memo |
 | 8 | `docs`: `.env.example` template |
 | 9 | `docs`: AGENTS.md + `/pr-review` sub-agent workflow |
 | 10 | `revert` of a docs change (churn, resolved in place) |
@@ -381,6 +382,9 @@ volatile during early history edits; commits are identified by subject):
 | 23 | `docs`: `swe-2-high` example for devin-cli review role |
 | 24 | `docs`: branch + pr-review workflow policy in AGENTS.md |
 | 25 | `docs`: single functional validation in local pr-review workflow |
+| 26 | `docs`: FR-O18 persistent run metrics tables |
+| 27 | `feat(orchestrator)`: `metrics.persist_run` → Postgres |
+| 28 | `fix(orchestrator)`: metrics resilience — per-row isolation, DDL memo |
 
 ## 11. Extension points (SDD backlog)
 
