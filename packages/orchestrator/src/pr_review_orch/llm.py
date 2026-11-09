@@ -105,6 +105,40 @@ def _normalize_usage(api: str, usage: dict[str, Any]) -> dict[str, int]:
     }
 
 
+# Provider stop signals that mean the answer was cut by a token cap:
+# OpenAI-compatible `finish_reason` ("length"; some routers emit
+# "max_tokens") and Anthropic `stop_reason` ("max_tokens").
+_TRUNCATION_REASONS = {"length", "max_tokens"}
+
+
+def _parse_response(api: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Extract text, usage and truncation status from a raw API response.
+
+    Pure — unit-tested without network. ``truncated`` is ``True`` when
+    the provider hit a token cap mid-answer, so callers can degrade
+    instead of trusting cut-off output (e.g. half-written JSON). Note
+    that reasoning models may burn ``max_tokens`` on chain-of-thought
+    and return empty ``text`` with ``truncated=True``.
+    """
+    if api == "anthropic":
+        text = "".join(
+            block.get("text", "")
+            for block in data.get("content", [])
+            if block.get("type") == "text"
+        )
+        finish_reason = data.get("stop_reason")
+    else:
+        choice = (data.get("choices") or [{}])[0]
+        text = (choice.get("message") or {}).get("content") or ""
+        finish_reason = choice.get("finish_reason")
+    return {
+        "text": text,
+        "usage": _normalize_usage(api, data.get("usage") or {}),
+        "finish_reason": finish_reason,
+        "truncated": finish_reason in _TRUNCATION_REASONS,
+    }
+
+
 class LLMConfigError(ValueError):
     """Invalid or incomplete LLM configuration."""
 
@@ -217,6 +251,9 @@ class LLMConfig:
 
         ``usage`` is normalized to ``prompt_tokens``/``completion_tokens``
         across providers (Anthropic reports input/output names).
+        ``finish_reason`` carries the raw provider stop signal and
+        ``truncated`` flags answers cut short by a token cap — callers
+        MUST check it before trusting structured output (FR-O14).
         """
         if not self.enabled:
             raise LLMConfigError("LLM is disabled: set QG_LLM_PROVIDER")
@@ -233,22 +270,14 @@ class LLMConfig:
         resp.raise_for_status()
         data = resp.json()
 
-        if spec.api == "anthropic":
-            text = "".join(
-                block.get("text", "")
-                for block in data.get("content", [])
-                if block.get("type") == "text"
-            )
-        else:
-            text = data["choices"][0]["message"]["content"]
-        return {
-            "text": text,
-            "duration_s": duration_s,
-            "usage": _normalize_usage(spec.api, data.get("usage") or {}),
-        }
+        return {**_parse_response(spec.api, data), "duration_s": duration_s}
 
     def complete(self, system: str, user: str) -> str:
-        """Single-shot completion. Returns the assistant message text."""
+        """Single-shot completion. Returns the assistant message text.
+
+        Truncation is not surfaced here — use ``complete_with_meta`` when
+        the caller needs to detect token-cap cut-offs.
+        """
         return self.complete_with_meta(system, user)["text"]
 
 

@@ -317,6 +317,7 @@ volatile during early history edits; commits are identified by subject):
 | 14 | `feat(orchestrator)`: provider-agnostic LLM config |
 | 15 | `feat(orchestrator)`: run metrics + blast-radius scoping |
 | 16 | `docs`: FR-O14 LLM completion contract + truncation handling |
+| 17 | `feat(orchestrator)`: `truncated`/`finish_reason` in `complete_with_meta` |
 
 ## 11. Extension points (SDD backlog)
 

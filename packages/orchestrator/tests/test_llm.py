@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from pr_review_orch.llm import LLMConfig, LLMConfigError
+from pr_review_orch.llm import LLMConfig, LLMConfigError, _parse_response
 
 
 def test_disabled_when_provider_unset() -> None:
@@ -94,3 +94,74 @@ def test_anthropic_request_shape() -> None:
     assert headers["anthropic-version"] == "2023-06-01"
     assert payload["system"] == "sys"
     assert payload["messages"] == [{"role": "user", "content": "user"}]
+
+
+def test_openai_response_truncated_on_length() -> None:
+    out = _parse_response(
+        "openai",
+        {
+            "choices": [
+                {"message": {"content": "{\"findings\":"}, "finish_reason": "length"}
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2048},
+        },
+    )
+    assert out["truncated"] is True
+    assert out["finish_reason"] == "length"
+    assert out["usage"] == {"prompt_tokens": 10, "completion_tokens": 2048}
+
+
+def test_openai_response_max_tokens_reason_is_truncated() -> None:
+    # Some routers (incl. OpenRouter providers) emit "max_tokens".
+    out = _parse_response(
+        "openai",
+        {"choices": [{"message": {"content": "cut"}, "finish_reason": "max_tokens"}]},
+    )
+    assert out["truncated"] is True
+
+
+def test_openai_response_stop_is_not_truncated() -> None:
+    out = _parse_response(
+        "openai",
+        {
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+        },
+    )
+    assert out["truncated"] is False
+    assert out["text"] == "ok"
+    assert out["finish_reason"] == "stop"
+
+
+def test_openai_response_missing_fields_is_safe() -> None:
+    out = _parse_response("openai", {"choices": []})
+    assert out["text"] == ""
+    assert out["truncated"] is False
+    assert out["usage"] == {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+def test_anthropic_response_truncated_on_max_tokens() -> None:
+    out = _parse_response(
+        "anthropic",
+        {
+            "content": [{"type": "text", "text": "partial"}],
+            "stop_reason": "max_tokens",
+            "usage": {"input_tokens": 5, "output_tokens": 2048},
+        },
+    )
+    assert out["truncated"] is True
+    assert out["finish_reason"] == "max_tokens"
+    assert out["usage"] == {"prompt_tokens": 5, "completion_tokens": 2048}
+
+
+def test_anthropic_response_end_turn_is_not_truncated() -> None:
+    out = _parse_response(
+        "anthropic",
+        {
+            "content": [{"type": "text", "text": "done"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 4, "output_tokens": 2},
+        },
+    )
+    assert out["truncated"] is False
+    assert out["text"] == "done"
