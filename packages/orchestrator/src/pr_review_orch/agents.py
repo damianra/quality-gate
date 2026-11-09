@@ -328,7 +328,15 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
             "security", "warning", "Sensitive config modified",
             f"{f} is on the sensitive-config watchlist.", file=f))
 
-    return {"findings": findings}
+    # FR-O16: optional LLM pass with the security role config; degrades to
+    # info notes on any failure — never removes deterministic findings.
+    enrich = _llm_enrich("security", SECURITY_PROMPT, state)
+    findings += enrich["findings"]
+    return {
+        "findings": findings,
+        "llm_calls": enrich["llm_calls"],
+        "active_pgids": enrich["active_pgids"],
+    }
 
 
 # --------------------------------------------------------------------------- #

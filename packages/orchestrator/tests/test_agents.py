@@ -225,3 +225,18 @@ def test_review_specialist_deterministic_when_llm_disabled(monkeypatch):
     out = agents.review_specialist(_state())
     assert out["llm_calls"] == []
     assert out["active_pgids"] == []
+
+
+def test_security_specialist_merges_llm_enrichment(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"severity": "blocker", "title": "Rotated token leaked",'
+                ' "detail": "old key still valid", "file": ".env"}]',
+        "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        "finish_reason": "stop", "truncated": False, "duration_s": 1.1,
+    })
+    out = agents.security_specialist(_state(
+        signals={"secret_candidates": ["ghp_x"]}))
+    blockers = [f for f in out["findings"] if f["severity"] == "blocker"]
+    assert any(f["title"] == "LLM: Rotated token leaked" for f in blockers)
+    assert any(f["title"] == "Possible hardcoded secret" for f in blockers)
+    assert out["llm_calls"][0]["node"] == "security"
