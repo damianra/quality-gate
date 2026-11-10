@@ -96,9 +96,10 @@ GitHub webhook (pull_request) ──> nginx :QG_INGRESS_PORT
   errors, commit messages or CLI arguments.
 - **INV-4 Verdict contract.** The published PR comment format is fixed
   (§6.1) and idempotent via the `<!-- pr-review head:<sha7> -->` marker.
-- **INV-5 Language policy.** Code, comments, docs and commits in English;
-  user-facing text (verdict comment, chat) in Spanish. `README.md` and
-  `README_ES.md` are mirrors updated in the same PR.
+- **INV-5 Language policy.** Code, comments, docs and commits in English.
+  The posted PR verdict comment is English (§6.1, FR-T1); chat answers
+  stay Spanish. `README.md` and `README_ES.md` are mirrors updated in
+  the same PR.
 - **INV-6 Webhook integrity.** Every ingress payload is HMAC-verified
   (`X-Hub-Signature-256` vs `GITHUB_WEBHOOK_SECRET`, constant-time
   compare) before any processing; unsigned or mismatched payloads are
@@ -353,12 +354,12 @@ duration lands in `node_durations`.
 
 ## 6. Contracts
 
-### 6.1 Verdict comment (user-facing, Spanish — non-negotiable)
+### 6.1 Verdict comment (English — non-negotiable, FR-T1)
 
 ```markdown
-## Validación funcional
+## Functional validation
 
-**Veredicto:** ✅ Aprobado | ❌ Cambios requeridos
+**Verdict:** ✅ Approved | ❌ Changes required
 
 - ✅|⚠️|❌ **check** — detail   # icon maps to check.severity:
   # info->✅  warning->⚠️  blocker->❌ (checks without severity fall
@@ -367,10 +368,21 @@ duration lands in `node_durations`.
 **Result:** <summary>
 **Note:** <note>
 
-**Métricas:** <total_s; slowest node; LLM calls/tokens; processes>
+**Metrics:** <total_s; slowest node; LLM calls/tokens incl. per-model
+             split; processes>
+
+<details><summary>LLM telemetry</summary>   # omitted when no LLM calls
+
+<per-model telemetry table — see docs/specs/llm-telemetry.md §3.1>
+
+</details>
 
 <!-- pr-review head:<sha7> -->
 ```
+
+Per-call telemetry fields (`perf`, `memory`, `provider_stats`), the
+`llm.by_model` aggregation and the `llm_call_metrics` column additions
+are specified in `docs/specs/llm-telemetry.md` (FR-T2..FR-T4).
 
 - Marker regex: `<!--\s*pr-review head:(?P<sha>[0-9a-fA-F]{7,40})\s*-->`.
 - A PR is `pending` until a marker matching its `head:<sha7>` exists.
@@ -517,6 +529,10 @@ volatile during early history edits; commits are identified by subject):
 | 57 | `fix(mcp-server)`: code-looking comments + doc-path scope exempt |
 | 58 | `fix(orchestrator)`: blocker = real defects only in contract |
 | 59 | `docs`: FR-O3 heuristic refinements in SPEC |
+| 60 | `docs`: FR-T* English verdict + LLM telemetry spec |
+| 61 | `feat(mcp-server)`: English verdict + telemetry details block |
+| 62 | `feat(orchestrator)`: per-call perf/RSS telemetry + by_model metrics |
+| 63 | `chore`: all roles default to ollama/qwen3:8b (isolated sessions) |
 
 ## 11. Extension points (SDD backlog)
 
@@ -528,6 +544,11 @@ implementing:
   summary (FR-O16a): role-scoped config (FR-O15), bounded context
   payloads, `llm_calls` recording, degrade-on-failure. Remaining:
   deeper harness duties (routing hints, retry policy) if needed.
+- **LLM telemetry + English verdict** — implemented in
+  `docs/specs/llm-telemetry.md` (FR-T1..FR-T5): English comment,
+  per-call perf/RSS/provider stats, per-model aggregation + collapsible
+  telemetry block, idempotent schema evolution, isolated role sessions
+  defaulting to ollama/qwen3:8b.
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
