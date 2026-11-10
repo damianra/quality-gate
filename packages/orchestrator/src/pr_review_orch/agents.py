@@ -27,7 +27,7 @@ logger = logging.getLogger("pr-review-orch")
 
 # --------------------------------------------------------------------------- #
 # Prompts — REVIEW/SECURITY double as system prompts for the LLM
-# enrichment (FR-O16); QA_PROMPT documents the deterministic contract.
+# enrichment (FR-O16); all three feed _llm_enrich's system prompt.
 # --------------------------------------------------------------------------- #
 
 REVIEW_PROMPT = """You are ReviewAgent. Evaluate the PR against the repo's
@@ -39,9 +39,10 @@ SECURITY_PROMPT = """You are SecurityAgent. Hunt for hardcoded secrets,
 suspicious new dependencies, and churn on sensitive configuration files
 (CI workflows, env files, build config). Any leaked credential is a blocker."""
 
-QA_PROMPT = """You are QAAgent. Validate structural soundness: TypeScript
-typecheck (tsc --noEmit) or syntax check (node --check) when applicable.
-Every spawned process MUST register its pgid in active_pgids for cleanup."""
+QA_PROMPT = """You are QAAgent. Analyze the diff for validation gaps:
+missing or broken tests, untested edge cases, assertions that no longer
+match the changed behavior, and error paths nobody exercises. Report
+findings only — never modify code."""
 
 # --------------------------------------------------------------------------- #
 # LLM enrichment (FR-O16)
@@ -370,7 +371,15 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
         findings.append(_finding(
             "qa", "info", "No validators available",
             "Neither a local tsc nor node is available; structural checks skipped."))
-        return {"findings": findings, "active_pgids": pgids, "processes": proc_metrics}
+        # FR-O16: the LLM pass still runs — validation-gap analysis does
+        # not depend on local validators being installed.
+        enrich = _llm_enrich("qa", QA_PROMPT, state)
+        return {
+            "findings": findings + enrich["findings"],
+            "active_pgids": pgids + enrich["active_pgids"],
+            "processes": proc_metrics,
+            "llm_calls": enrich["llm_calls"],
+        }
 
     failures = 0
     for cmd in commands:
@@ -413,3 +422,14 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
             f"({', '.join(c[0] for c in commands)})."))
 
     return {"findings": findings, "active_pgids": pgids, "processes": proc_metrics}
+    # info notes on any failure — never removes deterministic findings.
+    enrich = _llm_enrich("qa", QA_PROMPT, state)
+    findings += enrich["findings"]
+    pgids += enrich["active_pgids"]
+
+    return {
+        "findings": findings,
+        "active_pgids": pgids,
+        "processes": proc_metrics,
+        "llm_calls": enrich["llm_calls"],
+    }
