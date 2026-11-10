@@ -517,18 +517,34 @@ def _is_dep_manifest(path: str) -> bool:
         name.startswith("requirements") and name.endswith(".txt"))
 
 
-def _audit_command(manifests: list[str]) -> list[str] | None:
-    """Pick the best available scanner for the changed manifests."""
+def _audit_command(
+    manifests: list[str], repo: Path
+) -> tuple[list[str], Path] | None:
+    """Pick the best available scanner + cwd for the changed manifests.
+
+    npm/pip-audit audit the *PR's* dependencies, not the host's ambient
+    environment: npm runs in the changed manifest's directory (a root
+    run without a root lockfile exits with an error JSON that must not
+    read as "clean"), pip-audit gets `-r` on each changed requirements
+    file (it cannot audit pyproject/uv.lock manifests directly).
+    """
     if shutil.which("osv-scanner"):
-        return ["osv-scanner", "scan", "source", "-r",
-                "--format", "json", "--no-resolve", "."]
+        return (["osv-scanner", "scan", "source", "-r",
+                 "--format", "json", "."], repo)
     names = {Path(m).name.lower() for m in manifests}
     if names & _NPM_MANIFESTS and shutil.which("npm"):
-        return ["npm", "audit", "--omit=dev", "--json"]
-    py_hit = names & _PY_MANIFESTS or any(
-        Path(m).name.lower().startswith("requirements") for m in manifests)
-    if py_hit and shutil.which("pip-audit"):
-        return ["pip-audit", "--format", "json"]
+        npm_manifest = next(
+            m for m in manifests
+            if Path(m).name.lower() in _NPM_MANIFESTS)
+        return (["npm", "audit", "--omit=dev", "--json"],
+                repo / Path(npm_manifest).parent)
+    reqs = [
+        m for m in manifests
+        if Path(m).name.lower().startswith("requirements")
+        and m.lower().endswith(".txt")]
+    if reqs and shutil.which("pip-audit"):
+        return (["pip-audit", "--format", "json",
+                 *[f"-r{r}" for r in reqs]], repo)
     return None
 
 
@@ -615,16 +631,17 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
     manifests = [f for f in changed if _is_dep_manifest(f)]
     if not manifests:
         return out
-    cmd = _audit_command(manifests)
-    if cmd is None:
+    sel = _audit_command(manifests, repo)
+    if sel is None:
         out["findings"].append(_finding(
             "security", "info", "Dependency audit skipped",
             "Dependency manifest changed but no supported scanner on the "
             "host (osv-scanner / npm / pip-audit)."))
         return out
+    cmd, cwd = sel
 
     res = mcp_tools.spawn_process(
-        str(repo), cmd[0], cmd[1:], timeout=config.AUDIT_PROCESS_TIMEOUT)
+        str(cwd), cmd[0], cmd[1:], timeout=config.AUDIT_PROCESS_TIMEOUT)
     if res["pgid"] > 0:
         out["pgids"].append(res["pgid"])
     out["processes"].append({
@@ -648,6 +665,13 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
             f"`{' '.join(cmd)}` exited {res['exit_code']} with non-JSON "
             "output."))
         return out
+    if isinstance(data, dict) and data.get("error"):
+        # e.g. npm audit against a dir without a lockfile returns
+        # {"error": {...}} — a failure, NOT a clean bill.
+        err = data["error"]
+        out["findings"].append(_finding(
+            "security", "info", "Dependency audit failed",
+            f"`{' '.join(cmd)}`: {err.get('summary') or err.get('detail') or err}"))
 
     vulns = (
         _parse_osv(data) if cmd[0] == "osv-scanner"
@@ -677,8 +701,6 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
             f"{extra} additional vulnerable package(s) omitted; "
             "run the scanner locally for the full list."))
     return out
-
-
 
 
 # Test/fixture paths: secret-pattern hits here are almost always fixtures

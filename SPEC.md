@@ -330,6 +330,8 @@ duration lands in `node_durations`.
   `client_max_body_size` (default 1 MB) before proxying. The service
   logs event metadata only (repo, pr, sha, action) — never signatures,
   token or body. Clone failures, signature failures and allowlist
+  denials are logged and dropped; they never reach the graph. PR
+  comments stay idempotent via the existing marker (INV-4).
 - **FR-O23 Specialist prompt evidence.** `_llm_user_message` ships, in
   addition to the diff, the full contents of changed files and the
   names of direct dependents gathered by `build_pr_context` (FR-O12) —
@@ -357,8 +359,6 @@ duration lands in `node_durations`.
   version and summary in the detail. Unparseable/timed-out scanner
   output degrades to an info note. `QG_DEP_AUDIT=0` disables the
   audit entirely.
-  denials are logged and dropped; they never reach the graph. PR
-  comments stay idempotent via the existing marker (INV-4).
 
 ## 5. Non-functional requirements
 
