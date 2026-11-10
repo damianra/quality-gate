@@ -259,3 +259,28 @@ def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     assert "LLM: Untested edge case" in titles   # enrichment merged
     assert out["llm_calls"][0]["role"] == "qa"
     assert out["processes"] == []
+
+
+def test_qa_specialist_enriches_normal_path(monkeypatch, tmp_path):
+    """Validators found -> command loop runs -> enrichment still merges."""
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"severity": "info", "title": "Edge path untested",'
+                ' "detail": "x", "file": null}]',
+        "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+        "finish_reason": "stop", "truncated": False, "duration_s": 0.2,
+    })
+    (tmp_path / "app.js").write_text("console.log(1)\n")
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        lambda *a, **k: {"pgid": 0, "exit_code": 0, "timed_out": False,
+                         "duration_s": 0.01, "stdout": "", "stderr": ""},
+    )
+    out = agents.qa_specialist(_state(
+        repo_path=str(tmp_path),
+        files=[{"filename": "app.js"}],
+    ))
+    titles = {f["title"] for f in out["findings"]}
+    assert "Validation passed" in titles          # deterministic kept
+    assert "LLM: Edge path untested" in titles    # enrichment merged
+    assert out["llm_calls"][0]["role"] == "qa"
+    assert len(out["processes"]) == 1             # one spawn recorded

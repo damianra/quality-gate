@@ -421,7 +421,7 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
             f"{len(commands)} check(s) completed cleanly "
             f"({', '.join(c[0] for c in commands)})."))
 
-    return {"findings": findings, "active_pgids": pgids, "processes": proc_metrics}
+    # FR-O16: optional LLM pass with the qa role config; degrades to
     # info notes on any failure — never removes deterministic findings.
     enrich = _llm_enrich("qa", QA_PROMPT, state)
     findings += enrich["findings"]

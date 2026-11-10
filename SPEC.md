@@ -466,6 +466,7 @@ volatile during early history edits; commits are identified by subject):
 | 37 | `docs`: local webhook exposure guide (`docs/`) |
 | 38 | `feat(orchestrator)`: wire qa specialist to role LLM |
 | 39 | `docs`: FR-O16 all-specialists wired in SPEC + READMEs |
+| 40 | `fix(orchestrator)`: qa normal-path enrich unreachable (dead return) |
 
 ## 11. Extension points (SDD backlog)
 
