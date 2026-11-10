@@ -23,6 +23,10 @@ from .github_api import GitHubClient
 # --------------------------------------------------------------------------- #
 
 MARKER_PREFIX = "<!-- pr-review head:"
+
+# Per-check icons: blockers read as errors, warnings as warnings,
+# info (or legacy checks without severity) as approval marks.
+_CHECK_ICONS = {"blocker": "❌", "warning": "⚠️", "info": "✅"}
 MARKER_RE = re.compile(r"<!--\s*pr-review head:(?P<sha>[0-9a-fA-F]{7,40})\s*-->")
 
 
@@ -50,7 +54,9 @@ def build_verdict_comment(
         "",
     ]
     for c in checks:
-        mark = "✅" if c.get("passed") else "❌"
+        mark = _CHECK_ICONS.get(c.get("severity")) or (
+            "✅" if c.get("passed") else "❌"
+        )
         detail = c.get("detail", "")
         lines.append(f"- {mark} **{c.get('name', 'check')}** — {detail}")
     if result:

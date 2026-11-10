@@ -358,7 +358,9 @@ duration lands in `node_durations`.
 
 **Veredicto:** ✅ Aprobado | ❌ Cambios requeridos
 
-- ✅/❌ **check** — detail
+- ✅|⚠️|❌ **check** — detail   # icon maps to check.severity:
+  # info->✅  warning->⚠️  blocker->❌ (checks without severity fall
+  # back to passed->✅ / failed->❌)
 
 **Result:** <summary>
 **Note:** <note>
@@ -506,6 +508,9 @@ volatile during early history edits; commits are identified by subject):
 | 51 | `docs`: FR-O16 reasoning-strip in SPEC |
 | 52 | `feat(orchestrator)`: QG_LLM_JSON_MODE + findings shape tolerance |
 | 53 | `docs`: FR-O15 json_mode knob in SPEC + .env.example |
+| 54 | `feat(orchestrator)`: checks carry finding severity |
+| 55 | `feat(mcp-server)`: severity-aware check icons (✅/⚠️/❌) |
+| 56 | `docs`: severity icons in comment format + SPEC |
 
 ## 11. Extension points (SDD backlog)
 

@@ -97,7 +97,8 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     checks = [
         {
             "name": f["title"],
-            "passed": f["severity"] != "blocker",
+            "severity": f.get("severity"),
+            "passed": f.get("severity") != "blocker",
             "detail": f"[{f['agent']}] {f['detail']}",
         }
         for f in findings
@@ -105,6 +106,7 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     if state.get("errors"):
         checks.append({
             "name": "Internal errors",
+            "severity": "blocker",
             "passed": False,
             "detail": "; ".join(state["errors"]),
         })
