@@ -119,17 +119,41 @@ def test_large_diff_thresholds():
     assert s["large_diff"]
 
 
+def test_commented_blocks_skips_prose_comments():
+    """Explanatory doc comments are not commented-out code."""
+    d = _diff(
+        {
+            "src/app.ts": (
+                [],
+                [
+                    "// El remote era preexistente se conserva",
+                    "// Si falla el push, se reintenta por SSH",
+                    "// para evitar el requisito del scope workflow",
+                    "const url = sshUrl;",
+                ],
+            )
+        }
+    )
+    s = analyze_diff(d)
+    assert s["commented_blocks"] == []
+
+
 def test_files_outside_hint_uses_pr_body():
     d = _diff(
         {
             "src/components/Button.tsx": (["a"], ["b"]),
             "scripts/deploy.sh": (["x"], ["y"]),
+            "README.md": (["r"], ["s"]),
+            "docs/guide.md": (["g"], ["h"]),
         }
     )
     body = "This PR touches src/components/Button.tsx only."
     s = analyze_diff(d, pr_body=body)
     assert "scripts/deploy.sh" in s["files_outside_hint"]
     assert "src/components/Button.tsx" not in s["files_outside_hint"]
+    # docs are always in scope — repo rules require them in every PR
+    assert "README.md" not in s["files_outside_hint"]
+    assert "docs/guide.md" not in s["files_outside_hint"]
 
 
 def test_no_hints_no_outside_files():

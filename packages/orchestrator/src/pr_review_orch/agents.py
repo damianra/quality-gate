@@ -60,8 +60,11 @@ _LLM_OUTPUT_CONTRACT = (
     "Respond with ONLY a JSON array of findings — no prose, no markdown "
     "fences: "
     '[{"severity": "info|warning|blocker", "title": str, "detail": str, '
-    '"file": str|null}]. At most 10 findings; "blocker" means must-fix '
-    "before merge. Judge only the supplied context."
+    '"file": str|null}]. At most 10 findings; "blocker" means a real '
+    "defect that must be fixed before merge (correctness, security, "
+    "broken behavior) — missing tests, coverage gaps, style and "
+    "suggestions are at most \"warning\". Judge only the supplied "
+    "context."
 )
 
 _LLM_SEVERITIES = {"info", "warning", "blocker"}
