@@ -71,6 +71,21 @@ services:
       QG_MAX_CONCURRENT_RUNS: ${QG_MAX_CONCURRENT_RUNS:-2}
       QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-ollama}
       QG_LLM_MODEL: ${QG_LLM_MODEL:-qwen3:8b}
+      # All four roles default to local ollama/qwen3:8b — each is an
+      # independent stateless session with its own system prompt and
+      # bounded context (FR-T5). JSON mode on for the specialists
+      # (qwen3 ignores the JSON findings contract without it); the
+      # harness emits prose so it stays off.
+      QG_LLM_PROVIDER_REVIEW: ${QG_LLM_PROVIDER_REVIEW:-ollama}
+      QG_LLM_MODEL_REVIEW: ${QG_LLM_MODEL_REVIEW:-qwen3:8b}
+      QG_LLM_JSON_MODE_REVIEW: ${QG_LLM_JSON_MODE_REVIEW:-1}
+      QG_LLM_PROVIDER_SECURITY: ${QG_LLM_PROVIDER_SECURITY:-ollama}
+      QG_LLM_MODEL_SECURITY: ${QG_LLM_MODEL_SECURITY:-qwen3:8b}
+      QG_LLM_JSON_MODE_SECURITY: ${QG_LLM_JSON_MODE_SECURITY:-1}
+      QG_LLM_PROVIDER_QA: ${QG_LLM_PROVIDER_QA:-ollama}
+      QG_LLM_MODEL_QA: ${QG_LLM_MODEL_QA:-qwen3:8b}
+      QG_LLM_JSON_MODE_QA: ${QG_LLM_JSON_MODE_QA:-1}
+      QG_LLM_TIMEOUT: ${QG_LLM_TIMEOUT:-300}
       # Host ollama by default (full machine resources); the "llm" profile
       # container is the fallback -> then use http://ollama:11434/v1.
       QG_LLM_BASE_URL: ${QG_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
