@@ -23,6 +23,18 @@ QA_PROCESS_TIMEOUT = int(os.environ.get("QG_QA_PROCESS_TIMEOUT", "120"))
 SCOPE_MAX_FILES = int(os.environ.get("QG_SCOPE_MAX_FILES", "25"))
 SCOPE_MAX_CHARS = int(os.environ.get("QG_SCOPE_MAX_CHARS", "200000"))
 
+#: Per-section char caps for the specialist LLM prompt (FR-O23): the
+#: diff keeps priority; full file contents fill the remaining budget so
+#: the prompt still fits the deployed model context (num_ctx).
+PROMPT_MAX_DIFF_CHARS = int(os.environ.get("QG_PROMPT_MAX_DIFF_CHARS", "16000"))
+PROMPT_MAX_FILES_CHARS = int(os.environ.get("QG_PROMPT_MAX_FILES_CHARS", "12000"))
+
+#: FR-O24 dependency audit (SecurityAgent): scanner runs over the
+#: worktree when the diff touches a dependency manifest/lockfile.
+#: QG_DEP_AUDIT=0 disables it entirely.
+DEP_AUDIT_ENABLED = os.environ.get("QG_DEP_AUDIT", "1") not in ("0", "false", "")
+AUDIT_PROCESS_TIMEOUT = int(os.environ.get("QG_AUDIT_PROCESS_TIMEOUT", "120"))
+
 # --- Service mode (FR-O19..O22): webhook ingress + ephemeral fetch ------- #
 
 #: HMAC secret for X-Hub-Signature-256 verification. REQUIRED in service
