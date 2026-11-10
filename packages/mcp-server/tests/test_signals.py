@@ -156,6 +156,22 @@ def test_files_outside_hint_uses_pr_body():
     assert "docs/guide.md" not in s["files_outside_hint"]
 
 
+def test_hint_regex_covers_python_and_toml():
+    """Python/config files must be hintable — they dominate this repo."""
+    d = _diff(
+        {
+            "packages/mcp-server/src/quality_gate_mcp/tools.py": (["a"], ["b"]),
+            "pyproject.toml": (["x"], ["y"]),
+            "other/module.py": (["u"], ["v"]),
+        }
+    )
+    body = "Scope: packages/mcp-server/src/quality_gate_mcp/tools.py, pyproject.toml"
+    s = analyze_diff(d, pr_body=body)
+    assert "other/module.py" in s["files_outside_hint"]
+    assert "packages/mcp-server/src/quality_gate_mcp/tools.py" not in s["files_outside_hint"]
+    assert "pyproject.toml" not in s["files_outside_hint"]
+
+
 def test_no_hints_no_outside_files():
     d = _diff({"anything/at/all.ts": (["a"], ["b"])})
     s = analyze_diff(d, pr_body="no file mentions here")

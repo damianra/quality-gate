@@ -115,7 +115,9 @@ _DOC_PATH_RE = re.compile(
     r"security)(\.[^/]*)?$|\.md$|(^|/)docs?/",
     re.IGNORECASE,
 )
-_HINT_RE = re.compile(r"[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|json|jsonc|md|yml|yaml|css|scss)")
+_HINT_RE = re.compile(
+    r"[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|json|jsonc|md|yml|yaml|css|scss|py|toml)"
+)
 
 
 def _is_sensitive(path: str) -> bool:
