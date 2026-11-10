@@ -48,12 +48,27 @@ podman compose up -d            # or: docker compose up -d
 podman compose run --rm orchestrator
 ```
 
-Dry-run locally without the stack (no comment posted, in-memory checkpointer):
+## Local test
+
+Fastest end-to-end check — runs the full graph against a **local
+checkout** of the PR head, posts nothing to GitHub (`--dry-run`) and
+uses the in-memory checkpointer (no Postgres needed):
 
 ```bash
-REPO_PATH=/path/to/checkout PR_NUMBER=123 GITHUB_TOKEN=ghp_... \
-  uv run --package pr-review-orchestrator pr-review --dry-run
+export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write
+export REPO_PATH=/path/to/checkout    # repo checked out at the PR branch
+export PR_NUMBER=123
+uv run --package pr-review-orchestrator pr-review --dry-run
 ```
+
+Output is a JSON verdict on stdout — `approve`, `summary`, `checks`,
+`cleanup_report` and the `metrics` block (durations, per-model tokens,
+telemetry). Exit code: `0` approved, `1` changes required. Without
+`--dry-run` it posts/updates the real verdict comment — point
+`REPO_PATH` at a throwaway repo when testing that path.
+
+To exercise the **webhook** path instead, bring up the ingress + a
+tunnel (next section).
 
 ## Registering the MCP in an IDE (manual debugging)
 
