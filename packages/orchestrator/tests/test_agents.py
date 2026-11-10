@@ -301,6 +301,11 @@ def test_llm_findings_parses_wrapper_and_single_dict():
     # dict without findings/list values -> empty
     assert agents._llm_findings("security", '{"result": 42}') == []
 
+    # explicit "findings" key wins over other list values
+    mixed = '{"files": ["a.py"], "findings": [{"severity": "info", "title": "D"}]}'
+    found = agents._llm_findings("security", mixed)
+    assert len(found) == 1 and found[0]["title"] == "LLM: D"
+
 
 def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     _fake_cfg(monkeypatch, meta={

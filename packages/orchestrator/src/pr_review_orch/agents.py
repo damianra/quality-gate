@@ -116,12 +116,17 @@ def _llm_findings(agent: str, text: str) -> list[dict[str, Any]]:
         except (ValueError, json.JSONDecodeError):
             return []
     if isinstance(data, dict):
-        # Wrapper object ({"findings": [...]}) -> first list value;
-        # a bare finding dict ({severity, title, ...}) wraps itself.
-        data = next(
-            (v for v in data.values() if isinstance(v, list)),
-            [data] if ("severity" in data or "title" in data) else [],
-        )
+        # Wrapper object -> explicit "findings" list; a bare finding
+        # dict ({severity, title, ...}) wraps itself; last resort is
+        # the first list value for other wrapper key names.
+        if isinstance(data.get("findings"), list):
+            data = data["findings"]
+        elif "severity" in data or "title" in data:
+            data = [data]
+        else:
+            data = next(
+                (v for v in data.values() if isinstance(v, list)), []
+            )
     out: list[dict[str, Any]] = []
     for item in (data if isinstance(data, list) else [])[:_LLM_MAX_FINDINGS]:
         if not isinstance(item, dict):
