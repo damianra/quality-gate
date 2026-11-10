@@ -51,6 +51,23 @@ when the change is package-local; cross-cutting commits omit it.
   mergeable unit. Merging to `main` requires the review verdict to be
   clean.
 
+## PR body conventions
+
+The review bot and human reviewers read the PR body as the declared
+scope of the change:
+
+- **Declare the affected paths.** List the touched dirs/files in the
+  body (e.g. a `## Scope` section). The `files_outside_hint` signal
+  flags every diff path not covered by the body's path hints — a
+  partial list flags the rest, an empty list flags nothing.
+- **Call out sensitive-config changes.** `.env*`, `compose.yaml`,
+  `.github/workflows/*`, `Dockerfile`s and `deploy/*` are on the
+  security watchlist — state briefly in the body why each change is
+  safe (no secrets, no new public surface).
+- **Keep the PR focused.** Past ~600 changed lines the oversized-PR
+  warning fires; prefer splitting docs/config/code into separate PRs
+  unless they ship one feature together.
+
 ## PR review checklist
 
 - [ ] Comments and documentation in English; user-facing text in Spanish
@@ -61,3 +78,6 @@ when the change is package-local; cross-cutting commits omit it.
 - [ ] `uv run pytest packages -q` passes
 - [ ] No vibecoding leftovers: debug statements, dead commented code,
       unscoped TODOs, files outside the declared PR scope
+- [ ] PR body declares the affected paths and calls out any
+      sensitive-config change
+- [ ] Focused diff (guide: consider splitting past ~600 changed lines)
