@@ -235,12 +235,14 @@ duration lands in `node_durations`.
   failure alone never rejects a PR.
 - **FR-O16a Harness summarization** — the synthesizer additionally
   calls the `harness` role (the base `QG_LLM_*` config, e.g. local
-  Ollama) with a bounded verdict digest (counts + top finding titles)
-  and attaches its Spanish executive summary to `verdict.llm_summary`
-  and the posted comment. The call is recorded in `llm_calls` under
-  node `synthesizer` BEFORE `metrics.summarize` builds the report, so
-  it persists in `llm_call_metrics`; a failed call stores an `error`
-  row, never a finding.
+  Ollama) with a bounded verdict digest (counts + top finding titles
+  WITH their details, i.e. the other LLMs' analysis) and attaches its
+  English executive summary to `verdict.llm_summary` and the posted
+  comment. Reasoning-model artifacts (`<think>…</think>` blocks, open
+  or closed) are stripped before storing. The call is recorded in
+  `llm_calls` under node `synthesizer` BEFORE `metrics.summarize`
+  builds the report, so it persists in `llm_call_metrics`; a failed
+  call stores an `error` row, never a finding.
 - **FR-O17 CLI-backed provider (`devin-cli`)** — runs a local agent CLI
   as a tracked subprocess instead of an HTTP API:
   `devin --print --permission-mode auto --respect-workspace-trust false
@@ -477,6 +479,8 @@ volatile during early history edits; commits are identified by subject):
 | 40 | `fix(orchestrator)`: qa normal-path enrich unreachable (dead return) |
 | 41 | `feat(orchestrator)`: harness-role verdict summary (FR-O16a) |
 | 42 | `docs`: FR-O16a harness summarization in SPEC + READMEs |
+| 43 | `fix(orchestrator)`: strip think tags; English detail-based summary |
+| 44 | `docs`: FR-O16a english/detail digest in SPEC |
 
 ## 11. Extension points (SDD backlog)
 
