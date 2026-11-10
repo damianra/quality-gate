@@ -267,6 +267,22 @@ def test_security_specialist_merges_llm_enrichment(monkeypatch):
     assert out["llm_calls"][0]["node"] == "security"
 
 
+def test_enrich_parses_findings_after_think_block(monkeypatch):
+    """Reasoning-model output: <think> wrapper must not sink the JSON."""
+    _fake_cfg(monkeypatch, meta={
+        "text": '<think>let me analyze the diff for secrets\n</think>\n'
+                '[{"severity": "blocker", "title": "Leaked key",'
+                ' "detail": "x", "file": "src/keys.ts"}]',
+        "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        "finish_reason": "stop", "truncated": False, "duration_s": 1.1,
+    })
+    out = agents.security_specialist(_state(
+        signals={"secret_candidates": [{"file": "a.ts", "line": "ghp_x"}]}))
+    blockers = [f for f in out["findings"] if f["severity"] == "blocker"]
+    assert any(f["title"] == "LLM: Leaked key" for f in blockers)
+    assert out["llm_calls"][0]["status"] == "ok"
+
+
 def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "warning", "title": "Untested edge case",'
