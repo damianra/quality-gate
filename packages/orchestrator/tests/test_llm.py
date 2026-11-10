@@ -328,3 +328,116 @@ def test_devin_cli_timeout_raises(
     cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
     with pytest.raises(RuntimeError, match="timed_out=True"):
         cfg.complete_with_meta("sys", "user", cwd="/repo")
+
+
+# --------------------------------------------------------------------------- #
+# FR-T2 per-call telemetry
+# --------------------------------------------------------------------------- #
+
+
+def test_rss_mb_reads_proc_or_returns_number() -> None:
+    from pr_review_orch.llm import _rss_mb
+
+    value = _rss_mb()
+    assert value is None or value > 0  # Linux /proc path: always > 0
+
+
+def test_telemetry_adds_perf_and_memory() -> None:
+    from pr_review_orch.llm import _telemetry
+
+    meta = _telemetry(100.0, 140.0, {
+        "usage": {"prompt_tokens": 10, "completion_tokens": 200},
+        "duration_s": 40.0,
+    })
+    assert meta["memory"]["rss_delta_mb"] == 40.0
+    assert meta["perf"]["completion_tps"] == 5.0
+
+
+def test_telemetry_none_when_unmeasurable() -> None:
+    from pr_review_orch.llm import _telemetry
+
+    meta = _telemetry(None, None, {
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        "duration_s": 0.0,
+    })
+    assert "memory" not in meta
+    assert meta["perf"]["completion_tps"] is None
+
+
+class _FakeResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._data
+
+
+def test_complete_with_meta_collects_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    monkeypatch.setattr(
+        llm_mod.httpx, "post",
+        lambda *a, **k: _FakeResponse({
+            "choices": [{"message": {"content": "ok"},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 40},
+        }),
+    )
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "openrouter",
+                              "QG_LLM_API_KEY": "k", "QG_LLM_MODEL": "m"})
+    monkeypatch.setattr(
+        cfg, "_provider_stats",
+        lambda: {"model_ram_mb": 1.0, "model_vram_mb": 1.0},
+    )
+    ticks = iter([1000.0, 1002.0])  # started -> 2s elapsed
+    monkeypatch.setattr(
+        llm_mod.time, "monotonic", lambda: next(ticks))
+    meta = cfg.complete_with_meta("sys", "user")
+    assert meta["perf"]["completion_tps"] == 20.0
+    assert meta["provider_stats"] == {
+        "model_ram_mb": 1.0, "model_vram_mb": 1.0}
+    if "memory" in meta:  # RSS sampling is platform-best-effort
+        assert "rss_delta_mb" in meta["memory"]
+
+
+def test_provider_stats_none_for_non_ollama() -> None:
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "openrouter",
+                              "QG_LLM_API_KEY": "k", "QG_LLM_MODEL": "m"})
+    assert cfg._provider_stats() is None
+
+
+def test_provider_stats_ollama_parses_api_ps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    monkeypatch.setattr(
+        llm_mod.httpx, "get",
+        lambda *a, **k: _FakeResponse({
+            "models": [{"model": "qwen3:8b", "size": 5 * 2**30,
+                        "size_vram": 4 * 2**30}],
+        }),
+    )
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
+                              "QG_LLM_MODEL": "qwen3:8b"})
+    stats = cfg._provider_stats()
+    assert stats == {"model_ram_mb": 5120.0, "model_vram_mb": 4096.0}
+
+
+def test_provider_stats_ollama_unreachable_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    def _boom(*a, **k):
+        raise RuntimeError("conn refused")
+
+    monkeypatch.setattr(llm_mod.httpx, "get", _boom)
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
+                              "QG_LLM_MODEL": "qwen3:8b"})
+    assert cfg._provider_stats() is None

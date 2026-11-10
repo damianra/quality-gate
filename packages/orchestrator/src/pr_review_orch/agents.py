@@ -169,6 +169,11 @@ def _call_record(
         rec["error"] = error[:300]
     if meta.get("text"):
         rec["raw"] = {"text": meta["text"][:1000]}
+    # FR-T2 telemetry: perf/RSS/provider footprint — absent keys mean
+    # "provider did not report", never zero-cost.
+    for key in ("perf", "memory", "provider_stats"):
+        if meta.get(key) is not None:
+            rec[key] = meta[key]
     return rec
 
 

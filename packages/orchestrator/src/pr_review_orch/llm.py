@@ -25,9 +25,12 @@ custom       openai-compatible     requires ``QG_LLM_BASE_URL``
 
 from __future__ import annotations
 
+import logging
 import os
+import resource
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -35,6 +38,54 @@ import httpx
 from quality_gate_mcp import tools as mcp_tools
 
 _DEFAULT_TIMEOUT = 60.0
+
+logger = logging.getLogger("pr-review-orch.llm")
+
+
+# --------------------------------------------------------------------------- #
+# Per-call telemetry (FR-T2) — provider-agnostic, never raises
+# --------------------------------------------------------------------------- #
+
+
+def _rss_mb() -> float | None:
+    """Current resident set size of this process in MB (best-effort).
+
+    Reads ``/proc/self/status`` (exact on Linux); falls back to
+    ``getrusage().ru_maxrss`` elsewhere — a peak, not a delta baseline,
+    but still a useful upper bound. ``None`` when neither works.
+    """
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return round(kb / 1024, 1)  # Linux: kilobytes
+    except (ValueError, OSError):
+        return None
+
+
+def _telemetry(
+    before_mb: float | None, after_mb: float | None, meta: dict[str, Any]
+) -> dict[str, Any]:
+    """Attach memory + perf fields to a completion ``meta`` dict."""
+    if before_mb is not None and after_mb is not None:
+        meta["memory"] = {
+            "rss_before_mb": before_mb,
+            "rss_after_mb": after_mb,
+            "rss_delta_mb": round(after_mb - before_mb, 1),
+        }
+    completion = (meta.get("usage") or {}).get("completion_tokens", 0)
+    duration = meta.get("duration_s") or 0.0
+    meta["perf"] = {
+        "completion_tps": (
+            round(completion / duration, 1)
+            if completion and duration > 0 else None
+        )
+    }
+    return meta
 
 
 @dataclass(frozen=True)
@@ -317,8 +368,10 @@ class LLMConfig:
         if not self.enabled:
             raise LLMConfigError("LLM is disabled: set QG_LLM_PROVIDER")
         spec = PROVIDERS[self.provider]
+        before_mb = _rss_mb()
         if spec.api == "devin-cli":
-            return self._devin_cli(system, user, cwd)
+            meta = self._devin_cli(system, user, cwd)
+            return _telemetry(before_mb, _rss_mb(), meta)
         if spec.api == "anthropic":
             url, headers, payload = self._anthropic_request(system, user)
         else:
@@ -331,7 +384,39 @@ class LLMConfig:
         resp.raise_for_status()
         data = resp.json()
 
-        return {**_parse_response(spec.api, data), "duration_s": duration_s}
+        meta = {**_parse_response(spec.api, data), "duration_s": duration_s}
+        meta["provider_stats"] = self._provider_stats()
+        return _telemetry(before_mb, _rss_mb(), meta)
+
+    def _provider_stats(self) -> dict[str, Any] | None:
+        """Provider-reported model footprint; ``None`` when unavailable.
+
+        Currently implemented for ``ollama``: queries the native
+        ``{base}/api/ps`` endpoint (base URL minus ``/v1``) and reports
+        the loaded model's total and VRAM footprint in MB. Every failure
+        mode — unreachable host, non-ollama server, model not loaded —
+        returns ``None``; telemetry must never break a completion.
+        """
+        if self.provider != "ollama" or not self.base_url:
+            return None
+        base = self.base_url
+        if base.endswith("/v1"):
+            base = base[: -len("/v1")]
+        try:
+            resp = httpx.get(f"{base}/api/ps", timeout=3.0)
+            resp.raise_for_status()
+            for m in resp.json().get("models", []):
+                if m.get("model") == self.model or \
+                        m.get("name") == self.model:
+                    return {
+                        "model_ram_mb": round(m.get("size", 0) / 2**20, 1),
+                        "model_vram_mb": round(
+                            m.get("size_vram", 0) / 2**20, 1
+                        ),
+                    }
+        except Exception:  # noqa: BLE001 - best-effort telemetry only
+            logger.debug("ollama /api/ps stats unavailable", exc_info=True)
+        return None
 
     def _devin_cli_argv(self, system: str, user: str) -> list[str]:
         """Argv for the non-interactive devin run (FR-O17). Pure for tests.
@@ -377,6 +462,7 @@ class LLMConfig:
             "finish_reason": None,
             "truncated": False,
             "pgid": res["pgid"],
+            "provider_stats": None,  # CLI provider reports no model stats
         }
 
     def complete(self, system: str, user: str) -> str:
