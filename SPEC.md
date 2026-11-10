@@ -157,9 +157,11 @@ duration lands in `node_durations`.
   `qa` when any changed file ends in `.ts .tsx .js .jsx .mjs .cjs`.
 - **FR-O3 ReviewAgent** — findings for: missing `AGENTS.md` (info),
   whitespace-dominated diff (warning ≥0.6/>20 lines; info ≥0.3/>50),
-  oversized PR (warning), commented-out blocks (warning), added TODOs
-  (info), files outside PR-body scope hints (warning), debug leftovers
-  (warning).
+  oversized PR (warning), commented-out blocks (warning — only
+  comment lines whose content looks like code count; prose/doc
+  comments are ignored), added TODOs (info), files outside PR-body
+  scope hints (warning — doc files `*.md`, `docs/`, README/LICENSE/
+  CHANGELOG always count as in-scope), debug leftovers (warning).
 - **FR-O4 SecurityAgent** — `secret_candidates` are blockers EXCEPT
   when the matching added line lives under a test/fixture path
   (`tests?/`, `__tests__/`, `__mocks__/`, `fixtures?/`, `mocks?/`,
@@ -379,7 +381,8 @@ duration lands in `node_durations`.
 files, per_file{added,removed}, files_changed, lines_changed,
 whitespace_ratio, large_diff, config_churn[], new_dependencies[],
 debug_leftovers[], todos_added[], commented_blocks[{file,lines,sample}],
-secret_candidates[{file,line}], files_outside_hint[], scope_hints[]
+secret_candidates[{file,line}], files_outside_hint[] (doc paths
+exempt), scope_hints[]
 ```
 
 ### 6.3 Finding schema
@@ -511,6 +514,9 @@ volatile during early history edits; commits are identified by subject):
 | 54 | `feat(orchestrator)`: checks carry finding severity |
 | 55 | `feat(mcp-server)`: severity-aware check icons (✅/⚠️/❌) |
 | 56 | `docs`: severity icons in comment format + SPEC |
+| 57 | `fix(mcp-server)`: code-looking comments + doc-path scope exempt |
+| 58 | `fix(orchestrator)`: blocker = real defects only in contract |
+| 59 | `docs`: FR-O3 heuristic refinements in SPEC |
 
 ## 11. Extension points (SDD backlog)
 
