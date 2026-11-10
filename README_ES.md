@@ -126,10 +126,10 @@ dónde se va el tiempo y los tokens.
 La revisión es determinística por defecto. Definir `QG_LLM_PROVIDER`
 habilita enriquecimiento con LLM en el orquestador; las claves viven solo
 en variables de entorno (`QG_LLM_API_KEY` o la variable canónica del
-proveedor). Los especialistas `review` y `security` llaman cada uno a su
-config de rol sobre el `pr_context` acotado; los findings LLM aparecen
-con prefijo `LLM:` en el veredicto y cualquier fallo degrada a una nota
-info — nunca rechaza un PR por sí solo (`qa` queda determinístico).
+proveedor). Los especialistas `review`, `security` y `qa` llaman cada uno
+a su config de rol sobre el `pr_context` acotado; los findings LLM
+aparecen con prefijo `LLM:` en el veredicto y cualquier fallo degrada a
+una nota info — nunca rechaza un PR por sí solo.
 
 | `QG_LLM_PROVIDER` | Variable de clave (fallback) | Base URL por defecto |
 |---|---|---|

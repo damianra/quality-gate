@@ -226,8 +226,9 @@ duration lands in `node_durations`.
   (titles prefixed `LLM:`) and the call is recorded in `llm_calls`
   (`{role, node, provider, model, duration_s, usage, finish_reason,
   truncated, status}` — `status` ∈ `ok|error|truncated|unparseable`).
-  Wired: `review`, `security`; `qa` stays deterministic (its evidence
-  is process output, not prose). Calls run concurrently inside the
+  Wired: `review`, `security`, `qa` — the qa prompt targets
+  validation gaps (missing tests, unexercised edge cases), orthogonal
+  to its deterministic process checks. Calls run concurrently inside the
   existing parallel fan-out. On provider error, `truncated=True`,
   unparseable output, or missing credentials the node MUST degrade to
   deterministic findings with an "LLM enrichment …" info note — LLM
@@ -463,17 +464,19 @@ volatile during early history edits; commits are identified by subject):
 | 35 | `feat(orchestrator)`: wire security specialist to role LLM |
 | 36 | `docs`: FR-O16 implemented design in SPEC + READMEs |
 | 37 | `docs`: local webhook exposure guide (`docs/`) |
+| 38 | `feat(orchestrator)`: wire qa specialist to role LLM |
+| 39 | `docs`: FR-O16 all-specialists wired in SPEC + READMEs |
 
 ## 11. Extension points (SDD backlog)
 
 Planned hooks already shaped by the codebase — spec them here before
 implementing:
 
-- **LLM-enriched specialists** — wired for `review`/`security`
+- **LLM-enriched specialists** — wired for `review`/`security`/`qa`
   (FR-O16): role-scoped config (FR-O15), bounded `pr_context` payload,
-  `llm_calls` recording, degrade-to-info on failure. Remaining: `qa`
-  role (process-output contract instead of findings) and a harness
-  summarization step if payload size ever beats the scope budget.
+  `llm_calls` recording, degrade-to-info on failure. Remaining: a
+  harness summarization step if payload size ever beats the scope
+  budget.
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.

@@ -119,11 +119,11 @@ tokens go.
 
 The review is deterministic by default. Setting `QG_LLM_PROVIDER` enables
 LLM-backed enrichment in the orchestrator; keys stay in env vars only
-(`QG_LLM_API_KEY` or the provider's canonical variable). The `review` and
-`security` specialists each call their role config over the bounded
-`pr_context`; LLM findings appear prefixed `LLM:` in the verdict and any
-failure degrades to an info note — it never rejects a PR by itself (`qa`
-stays deterministic).
+(`QG_LLM_API_KEY` or the provider's canonical variable). The `review`,
+`security` and `qa` specialists each call their role config over the
+bounded `pr_context`; LLM findings appear prefixed `LLM:` in the verdict
+and any failure degrades to an info note — it never rejects a PR by
+itself.
 
 | `QG_LLM_PROVIDER` | Key env (fallback) | Default base URL |
 |---|---|---|
