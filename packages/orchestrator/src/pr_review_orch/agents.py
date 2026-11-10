@@ -98,16 +98,35 @@ def _llm_user_message(state: dict[str, Any]) -> str:
 def _llm_findings(agent: str, text: str) -> list[dict[str, Any]]:
     """Parse the model's JSON findings into the findings schema.
 
-    Tolerant extraction: the first ``[`` .. last ``]`` slice is parsed, so
-    a chatty preamble does not sink the whole response. Severities outside
-    ``info|warning|blocker`` are clamped to ``info``.
+    Tolerant extraction: a strict whole-body parse first (json-mode
+    output may be a bare array, a ``{"findings": [...]}`` wrapper or a
+    single finding dict), then the ``[`` .. ``]`` slice for prose with
+    an embedded array. Severities outside ``info|warning|blocker`` are
+    clamped to ``info``.
     """
     try:
-        start = text.index("[")
-        end = text.rindex("]") + 1
-        data = json.loads(text[start:end])
-    except (ValueError, json.JSONDecodeError):
-        return []
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = None
+    if data is None:
+        try:
+            start = text.index("[")
+            end = text.rindex("]") + 1
+            data = json.loads(text[start:end])
+        except (ValueError, json.JSONDecodeError):
+            return []
+    if isinstance(data, dict):
+        # Wrapper object -> explicit "findings" list; a bare finding
+        # dict ({severity, title, ...}) wraps itself; last resort is
+        # the first list value for other wrapper key names.
+        if isinstance(data.get("findings"), list):
+            data = data["findings"]
+        elif "severity" in data or "title" in data:
+            data = [data]
+        else:
+            data = next(
+                (v for v in data.values() if isinstance(v, list)), []
+            )
     out: list[dict[str, Any]] = []
     for item in (data if isinstance(data, list) else [])[:_LLM_MAX_FINDINGS]:
         if not isinstance(item, dict):
