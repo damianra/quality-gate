@@ -307,6 +307,49 @@ def test_llm_findings_parses_wrapper_and_single_dict():
     assert len(found) == 1 and found[0]["title"] == "LLM: D"
 
 
+def test_llm_findings_skips_foreign_schema():
+    """Regression: a model echoing a non-findings schema (observed in prod:
+    {"status","message","code_changes":[{file,changes:[...]}]}) must not
+    render empty "LLM finding" rows — it filters to []."""
+    import json as _json
+    foreign = _json.dumps({
+        "status": "success",
+        "message": "the PR updates the fallback",
+        "code_changes": [
+            {"file": "src/a.js", "changes": ["added helper", "fixed path"]},
+            {"file": "src/b.js", "changes": ["updated tests"]},
+        ],
+    })
+    assert agents._llm_findings("security", foreign) == []
+
+
+def test_llm_findings_content_aliases_and_filter():
+    import json as _json
+    items = [
+        {"severity": "warning", "description": "alt-key detail", "file": "b.ts"},
+        {"severity": "info", "title": "only a title"},
+        {"severity": "info", "file": "c.ts", "changes": ["x"]},  # no content
+    ]
+    out = agents._llm_findings("review", _json.dumps(items))
+    assert len(out) == 2
+    assert out[0]["detail"] == "alt-key detail"
+    assert out[0]["title"] == "LLM: alt-key detail"   # detail fills the title
+    assert out[1]["title"] == "LLM: only a title"
+
+
+def test_enrich_foreign_schema_degrades(monkeypatch):
+    """Valid JSON but not a findings schema -> explicit unparseable note."""
+    _fake_cfg(monkeypatch, meta={
+        "text": '{"status": "success", "code_changes": '
+                '[{"file": "f.js", "changes": ["x"]}]}',
+        "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.3,
+    })
+    out = agents._llm_enrich("security", agents.SECURITY_PROMPT, _state())
+    assert out["findings"][0]["title"] == "LLM enrichment unparseable"
+    assert out["llm_calls"][0]["status"] == "unparseable"
+
+
 def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "warning", "title": "Untested edge case",'
