@@ -334,3 +334,36 @@ def test_synthesizer_records_harness_call(monkeypatch):
     assert out["metrics"]["llm"]["calls"] == 1
     assert out["metrics"]["llm"]["detail"][0]["role"] == "harness"
     assert out["llm_calls"][0]["node"] == "synthesizer"
+
+
+def test_strip_think_removes_reasoning_blocks():
+    raw = "<think>\nlet me reason about this PR\nmore thought\n</think>\nFinal answer text."
+    assert agents._strip_think(raw) == "Final answer text."
+
+
+def test_strip_think_unclosed_block():
+    raw = "<think>\nreasoning truncated mid-way\n\nActual summary here."
+    assert agents._strip_think(raw) == "Actual summary here."
+
+
+def test_harness_summarize_strips_think(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": "<think>analyzing…</think>Clean English summary.",
+        "usage": {"prompt_tokens": 9, "completion_tokens": 5},
+        "finish_reason": "stop", "truncated": False, "duration_s": 0.5,
+    })
+    out = agents.harness_summarize(_state(), [], approve=True)
+    assert out["text"] == "Clean English summary."
+    assert out["llm_calls"][0]["status"] == "ok"
+
+
+def test_harness_digest_includes_finding_details():
+    findings = [{
+        "agent": "review", "severity": "blocker",
+        "title": "LLM: Interpolación sin quoting",
+        "detail": "sshUrl se interpola sin comillas en el comando.",
+    }]
+    msg = agents._harness_user_message(_state(), findings, approve=False)
+    assert "LLM: Interpolación sin quoting" in msg
+    assert "sin comillas" in msg          # detail content reaches prompt
+    assert "blocker" in msg
