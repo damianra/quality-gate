@@ -8,8 +8,10 @@ The orchestrator's ReviewAgent also reads this file to score PRs.
 - **Code, comments and documentation are always in English.** That covers
   docstrings, inline comments, commit messages, workflow files, Dockerfiles
   and READMEs.
-- **User-facing responses are in Spanish.** Chat answers, PR review
-  summaries and any text directed at the user must be written in Spanish.
+- **User-facing responses are in Spanish, the PR verdict comment in
+  English.** Chat answers and any text directed at the user are written
+  in Spanish; the posted `## Functional validation` comment is English
+  (SPEC.md §6.1).
 
 ## Commit conventions
 

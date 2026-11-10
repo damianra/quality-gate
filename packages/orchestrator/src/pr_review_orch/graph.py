@@ -149,6 +149,7 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
             result=summary,
             note=f"PR #{state['pr_number']} reviewed automatically by quality-gate.",
             metrics_line=metrics.summary_line(report),
+            metrics_detail=metrics.detail_block(report),
         )
         update["posted"] = posted
     return update

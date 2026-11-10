@@ -60,6 +60,63 @@ def test_summary_line_minimal_run() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# FR-T3 per-model aggregation + telemetry detail block
+# --------------------------------------------------------------------------- #
+
+
+def _telemetry_state() -> dict:
+    return _state(llm_calls=[
+        {"role": "review", "node": "review", "provider": "ollama",
+         "model": "qwen3:8b", "duration_s": 40.0,
+         "usage": {"prompt_tokens": 3000, "completion_tokens": 400},
+         "perf": {"completion_tps": 10.0},
+         "memory": {"rss_delta_mb": 40.0},
+         "provider_stats": {"model_vram_mb": 5200.0}},
+        {"role": "harness", "node": "synthesizer", "provider": "ollama",
+         "model": "qwen3:8b", "duration_s": 10.0,
+         "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+         "perf": {"completion_tps": 10.0},
+         "memory": {"rss_delta_mb": 5.0},
+         "provider_stats": {"model_vram_mb": 5200.0}},
+        {"role": "security", "node": "security", "provider": "devin-cli",
+         "model": "swe-2-high", "duration_s": 30.0,
+         "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+    ])
+
+
+def test_by_model_aggregates_tokens_and_telemetry() -> None:
+    report = metrics.summarize(_telemetry_state())
+    qwen = report["llm"]["by_model"]["qwen3:8b"]
+    assert qwen["calls"] == 2
+    assert qwen["total_tokens"] == 4000
+    assert qwen["duration_s"] == 50.0
+    assert qwen["mean_completion_tps"] == 10.0
+    assert qwen["max_rss_delta_mb"] == 40.0
+    assert qwen["model_vram_mb"] == 5200.0
+    cli = report["llm"]["by_model"]["swe-2-high"]
+    assert cli["calls"] == 1 and cli["mean_completion_tps"] is None
+
+
+def test_summary_line_splits_tokens_per_model() -> None:
+    line = metrics.summary_line(metrics.summarize(_telemetry_state()))
+    assert "3 LLM call(s), 4000 tokens" in line
+    assert "[qwen3:8b: 4000, swe-2-high: 0]" in line
+
+
+def test_detail_block_renders_table_with_missing_cells() -> None:
+    block = metrics.detail_block(metrics.summarize(_telemetry_state()))
+    assert "| model | calls |" in block
+    assert "| qwen3:8b | 2 | 3500+500 | 50.0 | 10.0 | 40.0 | 5200.0 |" in block
+    assert "| swe-2-high | 1 | 0+0 | 30.0 | — | — | — |" in block
+
+
+def test_detail_block_empty_without_calls() -> None:
+    assert metrics.detail_block(metrics.summarize(
+        {"started_at": time.monotonic(), "node_durations": [],
+         "llm_calls": [], "processes": []})) == ""
+
+
+# --------------------------------------------------------------------------- #
 # FR-O18 persistence
 # --------------------------------------------------------------------------- #
 
@@ -127,7 +184,27 @@ def test_call_rows_map_per_call_fields() -> None:
     assert cli_call[10] == 0            # subprocess usage is zeroed
     assert cli_call[15] == "ok"         # status default
     assert cli_call[16] is None         # no error
-    assert isinstance(cli_call[17], metrics.Jsonb)
+    assert cli_call[17:21] == (None, None, None, None)  # no telemetry
+    assert isinstance(cli_call[21], metrics.Jsonb)
+
+
+def test_call_rows_maps_telemetry_columns() -> None:
+    state = _full_state()
+    state["llm_calls"] = [{
+        "role": "qa", "node": "qa", "provider": "ollama",
+        "model": "qwen3:8b", "duration_s": 40.0,
+        "usage": {"prompt_tokens": 3000, "completion_tokens": 400},
+        "perf": {"completion_tps": 10.0},
+        "memory": {"rss_before_mb": 100.0, "rss_after_mb": 140.0,
+                   "rss_delta_mb": 40.0},
+        "provider_stats": {"model_ram_mb": 5600.0, "model_vram_mb": 5200.0},
+    }]
+    rows = metrics._call_rows(state, "run-1")
+    assert len(rows) == 1
+    assert rows[0][17] == 10.0          # completion_tps
+    assert rows[0][18] == 40.0          # rss_delta_mb
+    assert rows[0][19] == 5600.0        # model_size_mb
+    assert rows[0][20] == 5200.0        # model_vram_mb
 
 
 class _FakeCursor:
@@ -183,12 +260,12 @@ def test_persist_run_writes_rows(monkeypatch) -> None:
     metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
 
     kinds = [k for k, *_ in conn.cur.calls]
-    # 2 DDL (first call in process) + 1 run insert + 2 call inserts
-    assert kinds.count("execute") == 5
+    # 2 CREATE + 4 ALTER DDL (first call in process) + 1 run + 2 calls
+    assert kinds.count("execute") == 9
 
-    run_insert = conn.cur.calls[2]
+    run_insert = conn.cur.calls[6]
     assert run_insert[2][0] == "run-1"      # first param is run_id
-    first_call_insert = conn.cur.calls[3][2]
+    first_call_insert = conn.cur.calls[7][2]
     assert first_call_insert[6] == "openrouter"
     assert conn.committed
 
@@ -204,7 +281,11 @@ def test_persist_run_runs_ddl_once_per_process(monkeypatch) -> None:
     ddl_count = sum(
         1 for _k, sql, _p in conn.cur.calls if "CREATE TABLE" in sql
     )
-    assert ddl_count == 2  # only the first persist_run ran the DDLs
+    alter_count = sum(
+        1 for _k, sql, _p in conn.cur.calls if "ADD COLUMN" in sql
+    )
+    assert ddl_count == 2   # only the first persist_run ran the DDLs
+    assert alter_count == 4  # FR-T4 telemetry columns, once per process
 
 
 def test_call_rows_skips_malformed_entry() -> None:

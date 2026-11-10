@@ -79,14 +79,17 @@ Or attach to the SSE endpoint started by compose:
 The published comment is always:
 
 ```markdown
-## Validación funcional
+## Functional validation
 
-**Veredicto:** ✅ Aprobado | ❌ Cambios requeridos
+**Verdict:** ✅ Approved | ❌ Changes required
 
-- ✅/❌ **check** — detail
+- ✅/⚠️/❌ **check** — detail
 
 **Result:** <summary>
 **Note:** <note>
+
+**Metrics:** <one-liner>
+<details><summary>LLM telemetry</summary>   # per-model table, when calls ran
 
 <!-- pr-review head:<sha7> -->
 ```
@@ -110,10 +113,14 @@ every variable below with defaults. `compose.yaml` picks it up automatically.
 
 ### Metrics
 
-Every run reports a `metrics` block (CLI JSON + `**Métricas:**` line in
+Every run reports a `metrics` block (CLI JSON + `**Metrics:**` line in
 the PR verdict): per-node durations, LLM calls with prompt/completion
-tokens, and spawned-process timings — so you can see where time and
-tokens go.
+tokens split per model, and spawned-process timings — so you can see
+where time and tokens go. A collapsible `<details>` block adds per-model
+telemetry: tokens (p+c), duration, completion tok/s, host RSS delta and
+the model footprint the provider reports (Ollama `/api/ps` → RAM/VRAM).
+Fields a provider does not return render as `—`; telemetry never blocks
+a run.
 
 ### LLM provider (optional)
 
@@ -135,7 +142,7 @@ the verdict, recorded in `llm_call_metrics` like every other role.
 | `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
 | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
 | `custom` | `QG_LLM_API_KEY` | requires `QG_LLM_BASE_URL` |
-| `devin-cli` | — (`devin auth` session) | local subprocess, no URL |
+| `devin-cli` | — (`devin auth` session) | local subprocess (bare host only), no URL |
 
 Each provider ships a default model; override with `QG_LLM_MODEL`.
 

@@ -55,10 +55,63 @@ def summarize(state: dict[str, Any]) -> dict[str, Any]:
             "prompt_tokens": prompt,
             "completion_tokens": completion,
             "total_tokens": prompt + completion,
+            "by_model": _by_model(llm_calls),
             "detail": llm_calls,
         },
         "processes": {"count": len(processes), "detail": processes},
     }
+
+
+def _by_model(llm_calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-model totals across calls (FR-T3).
+
+    Missing telemetry fields stay absent — a provider that reports only
+    ``usage`` still contributes calls/tokens/duration, never fake zeros
+    for perf or memory.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for c in llm_calls:
+        model = c.get("model") or "(unknown)"
+        agg = out.setdefault(model, {
+            "provider": c.get("provider"),
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "duration_s": 0.0,
+            "tps": [],
+            "rss_delta_mb": [],
+            "model_vram_mb": [],
+        })
+        usage = c.get("usage") or {}
+        agg["calls"] += 1
+        agg["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
+        agg["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)
+        agg["duration_s"] = round(
+            agg["duration_s"] + float(c.get("duration_s") or 0.0), 3)
+        tps = (c.get("perf") or {}).get("completion_tps")
+        if tps is not None:
+            agg["tps"].append(tps)
+        delta = (c.get("memory") or {}).get("rss_delta_mb")
+        if delta is not None:
+            agg["rss_delta_mb"].append(delta)
+        vram = (c.get("provider_stats") or {}).get("model_vram_mb")
+        if vram is not None:
+            agg["model_vram_mb"].append(vram)
+    for agg in out.values():
+        agg["total_tokens"] = agg["prompt_tokens"] + agg["completion_tokens"]
+        agg["mean_completion_tps"] = (
+            round(sum(agg["tps"]) / len(agg["tps"]), 1) if agg["tps"] else None
+        )
+        agg["max_rss_delta_mb"] = (
+            max(agg["rss_delta_mb"]) if agg["rss_delta_mb"] else None
+        )
+        agg["model_vram_mb"] = (
+            max(agg["model_vram_mb"]) if agg["model_vram_mb"] else None
+        )
+        del agg["tps"]
+        del agg["rss_delta_mb"]
+    return out
 
 
 def summary_line(metrics: dict[str, Any]) -> str:
@@ -69,10 +122,44 @@ def summary_line(metrics: dict[str, Any]) -> str:
         parts.append(f"slowest node: {slowest['node']} ({slowest['duration_s']}s)")
     llm = metrics["llm"]
     if llm["calls"]:
-        parts.append(f"{llm['calls']} LLM call(s), {llm['total_tokens']} tokens")
+        per_model = ", ".join(
+            f"{m}: {a['total_tokens']}" for m, a in llm["by_model"].items()
+        )
+        parts.append(
+            f"{llm['calls']} LLM call(s), {llm['total_tokens']} tokens"
+            + (f" [{per_model}]" if per_model else "")
+        )
     if metrics["processes"]["count"]:
         parts.append(f"{metrics['processes']['count']} process(es)")
     return "; ".join(parts)
+
+
+def detail_block(metrics: dict[str, Any]) -> str:
+    """Markdown table of per-model LLM telemetry (FR-T3).
+
+    Rendered inside the verdict's collapsible ``<details>`` block.
+    Providers that report only ``usage`` still get a row with their
+    counts — missing perf/memory cells render as ``—``. Empty string
+    when no LLM calls ran.
+    """
+    by_model = metrics.get("llm", {}).get("by_model") or {}
+    if not by_model:
+        return ""
+    rows = [
+        "| model | calls | prompt+completion | total s | tok/s | "
+        "ΔRSS MB | model VRAM MB |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for model, a in sorted(by_model.items()):
+        def _v(value: Any, suffix: str = "") -> str:
+            return f"{value}{suffix}" if value is not None else "—"
+        rows.append(
+            f"| {model} | {a['calls']} | "
+            f"{a['prompt_tokens']}+{a['completion_tokens']} | "
+            f"{a['duration_s']} | {_v(a['mean_completion_tps'])} | "
+            f"{_v(a['max_rss_delta_mb'])} | {_v(a['model_vram_mb'])} |"
+        )
+    return "\n".join(rows)
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +214,15 @@ _DDL = (
         recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,
+    # FR-T4: idempotent column adds — no migration tooling needed.
+    "ALTER TABLE llm_call_metrics "
+    "ADD COLUMN IF NOT EXISTS completion_tps DOUBLE PRECISION",
+    "ALTER TABLE llm_call_metrics "
+    "ADD COLUMN IF NOT EXISTS rss_delta_mb DOUBLE PRECISION",
+    "ALTER TABLE llm_call_metrics "
+    "ADD COLUMN IF NOT EXISTS model_size_mb DOUBLE PRECISION",
+    "ALTER TABLE llm_call_metrics "
+    "ADD COLUMN IF NOT EXISTS model_vram_mb DOUBLE PRECISION",
 )
 
 _RUN_INSERT = """
@@ -143,9 +239,10 @@ _CALL_INSERT = """
     INSERT INTO llm_call_metrics (
         run_id, repo, pr_number, head_sha, role, node, provider, model,
         prompt_tokens, completion_tokens, total_tokens, cost_usd,
-        duration_s, finish_reason, truncated, status, error, raw
+        duration_s, finish_reason, truncated, status, error,
+        completion_tps, rss_delta_mb, model_size_mb, model_vram_mb, raw
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s, %s)
+              %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -211,6 +308,10 @@ def _call_rows(state: dict[str, Any], run_id: str) -> list[tuple[Any, ...]]:
                 bool(call.get("truncated", False)),
                 call.get("status", "ok"),
                 call.get("error"),
+                (call.get("perf") or {}).get("completion_tps"),
+                (call.get("memory") or {}).get("rss_delta_mb"),
+                (call.get("provider_stats") or {}).get("model_ram_mb"),
+                (call.get("provider_stats") or {}).get("model_vram_mb"),
                 Jsonb(call),
             ))
         except Exception:  # noqa: BLE001 - skip the bad row, keep the rest

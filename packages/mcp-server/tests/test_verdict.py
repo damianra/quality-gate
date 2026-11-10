@@ -30,8 +30,8 @@ def test_verdict_comment_contract():
         note="automated review",
         head_sha=HEAD,
     )
-    assert body.startswith("## Validación funcional")
-    assert "✅ Aprobado" in body
+    assert body.startswith("## Functional validation")
+    assert "✅ Approved" in body
     assert "- ✅ **Sin secretos** — clean" in body
     assert "- ❌ **Scope** — 2 files outside" in body
     assert "- ⚠️ **Fixture token** — test file" in body
@@ -47,9 +47,26 @@ def test_verdict_comment_rejected():
     body = build_verdict_comment(
         approve=False, checks=[], result="", note="", head_sha=HEAD
     )
-    assert "❌ Cambios requeridos" in body
+    assert "❌ Changes required" in body
     assert "**Result:**" not in body
     assert "**Note:**" not in body
+
+
+def test_verdict_comment_metrics_and_details_block():
+    body = build_verdict_comment(
+        approve=True, checks=[], result="", note="", head_sha=HEAD,
+        metrics_line="1.2s total; 1 LLM call(s)",
+        metrics_detail="| model | calls |\n|---|---|\n| m1 | 1 |",
+    )
+    assert "**Metrics:** 1.2s total; 1 LLM call(s)" in body
+    assert "<details><summary>LLM telemetry</summary>" in body
+    assert "| m1 | 1 |" in body
+    assert "</details>" in body
+
+
+def test_verdict_comment_omits_details_when_empty():
+    body = build_verdict_comment(True, [], "", "", HEAD, metrics_line="x")
+    assert "<details>" not in body
 
 
 def test_marker_regex_matches_sha7():
@@ -132,8 +149,8 @@ def test_post_verdict_creates_when_no_marker(monkeypatch):
 
 
 def test_pr_review_status_pending_vs_reviewed():
-    reviewed = [{"body": f"## Validación funcional\n<!-- pr-review head:{HEAD[:7]} -->"}]
-    stale = [{"body": "## Validación funcional\n<!-- pr-review head:0000000 -->"}]
+    reviewed = [{"body": f"## Functional validation\n<!-- pr-review head:{HEAD[:7]} -->"}]
+    stale = [{"body": "## Functional validation\n<!-- pr-review head:0000000 -->"}]
     assert pr_review_status(reviewed, HEAD) == "reviewed"
     assert pr_review_status(stale, HEAD) == "pending"
     assert pr_review_status([], HEAD) == "pending"
