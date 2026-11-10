@@ -164,7 +164,13 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
 
     debug_leftovers = [l for l in added_lines if _DEBUG_RE.search(l)]
     todos_added = [l.strip() for l in added_lines if _TODO_RE.search(l)]
-    secret_candidates = [l.strip() for l in added_lines if _SECRET_RE.search(l)]
+    # (file, line) so downstream severity policy can scope by path —
+    # e.g. token-looking fixtures inside test files are not blockers.
+    secret_candidates = [
+        {"file": f, "line": l.strip()}
+        for f, l in added
+        if _SECRET_RE.search(l)
+    ]
     config_churn = [f for f in files if _is_sensitive(f)]
 
     # commented_blocks: runs of >= COMMENTED_BLOCK_MIN added comment-only lines

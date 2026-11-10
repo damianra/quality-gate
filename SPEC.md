@@ -160,8 +160,13 @@ duration lands in `node_durations`.
   oversized PR (warning), commented-out blocks (warning), added TODOs
   (info), files outside PR-body scope hints (warning), debug leftovers
   (warning).
-- **FR-O4 SecurityAgent** — `secret_candidates` are blockers; new
-  `package.json` dependencies and sensitive-config churn are warnings.
+- **FR-O4 SecurityAgent** — `secret_candidates` are blockers EXCEPT
+  when the matching added line lives under a test/fixture path
+  (`tests?/`, `__tests__/`, `__mocks__/`, `fixtures?/`, `mocks?/`,
+  `*.test.*`, `*.spec.*`, `test_*.py`) — those are almost always
+  inert fixtures and downgrade to warning with a `(test file)` title
+  suffix. New `package.json` dependencies and sensitive-config churn
+  are warnings.
 - **FR-O5 QAAgent** — prefer `node_modules/.bin/tsc --noEmit` when a
   `tsconfig.json` exists; otherwise `node --check` on up to 20 changed JS
   files. Every spawn registers its pgid in `active_pgids`. Non-zero exit
@@ -365,7 +370,7 @@ duration lands in `node_durations`.
 files, per_file{added,removed}, files_changed, lines_changed,
 whitespace_ratio, large_diff, config_churn[], new_dependencies[],
 debug_leftovers[], todos_added[], commented_blocks[{file,lines,sample}],
-secret_candidates[], files_outside_hint[], scope_hints[]
+secret_candidates[{file,line}], files_outside_hint[], scope_hints[]
 ```
 
 ### 6.3 Finding schema
@@ -488,6 +493,8 @@ volatile during early history edits; commits are identified by subject):
 | 45 | `feat(mcp-server)`: fresh verdict comment when the thread continued |
 | 46 | `chore`: default `QG_LLM_MAX_TOKENS` 20000 |
 | 47 | `docs`: FR-M7 reply semantics + token default in SPEC |
+| 48 | `fix(mcp-server)`: secret_candidates file-aware + test-path downgrade |
+| 49 | `docs`: FR-O4 test-file severity + signals schema in SPEC |
 
 ## 11. Extension points (SDD backlog)
 

@@ -27,7 +27,7 @@ def test_choose_agents_always_includes_review():
 
 
 def test_choose_agents_security_on_secrets():
-    s = {"secret_candidates": ["api_key = 'x'"]}
+    s = {"secret_candidates": [{"file": "a.ts", "line": "api_key = 'x'"}]}
     assert "security" in agents.choose_agents(s, [])
 
 
@@ -59,9 +59,31 @@ def test_review_flags_out_of_scope_and_secrets_agnostic():
 
 
 def test_security_blocks_on_secret():
-    state = _state(signals={"secret_candidates": ["api_key = 'sk-1'"]})
+    state = _state(signals={
+        "secret_candidates": [{"file": "src/keys.ts", "line": "api_key = 'sk-1'"}]
+    })
     findings = agents.security_specialist(state)["findings"]
     assert any(f["severity"] == "blocker" for f in findings)
+
+
+def test_secret_in_test_file_is_warning_not_blocker():
+    """Fixtures like token: 't' inside tests/ must not reject a PR."""
+    state = _state(signals={
+        "secret_candidates": [
+            {"file": "tests/finalizer.test.js",
+             "line": "const r = await fn(git, HTTPS, { token: 't' })"},
+            {"file": "src/keys.ts", "line": "api_key = 'sk-real'"},
+        ]
+    })
+    findings = agents.security_specialist(state)["findings"]
+    # Only deterministic candidates — LLM findings may also cite the file.
+    det = {
+        f["file"]: f for f in findings
+        if f["title"].startswith("Possible hardcoded secret")
+    }
+    assert det["tests/finalizer.test.js"]["severity"] == "warning"
+    assert "(test file)" in det["tests/finalizer.test.js"]["title"]
+    assert det["src/keys.ts"]["severity"] == "blocker"
 
 
 # -- synthesizer ----------------------------------------------------------------- #
@@ -238,7 +260,7 @@ def test_security_specialist_merges_llm_enrichment(monkeypatch):
         "finish_reason": "stop", "truncated": False, "duration_s": 1.1,
     })
     out = agents.security_specialist(_state(
-        signals={"secret_candidates": ["ghp_x"]}))
+        signals={"secret_candidates": [{"file": "a.ts", "line": "ghp_x"}]}))
     blockers = [f for f in out["findings"] if f["severity"] == "blocker"]
     assert any(f["title"] == "LLM: Rotated token leaked" for f in blockers)
     assert any(f["title"] == "Possible hardcoded secret" for f in blockers)

@@ -108,6 +108,9 @@ def test_secret_candidates():
     )
     s = analyze_diff(d)
     assert len(s["secret_candidates"]) == 1
+    # file-aware shape: the specialist downgrades test-path hits
+    assert s["secret_candidates"][0]["file"] == "src/keys.ts"
+    assert "api_key" in s["secret_candidates"][0]["line"]
 
 
 def test_large_diff_thresholds():
