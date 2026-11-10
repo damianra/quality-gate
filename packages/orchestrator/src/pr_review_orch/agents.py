@@ -750,6 +750,20 @@ _TEST_PATH_RE = re.compile(
 )
 
 
+# FR-O25 severity policy: an injection-looking line is a warning only
+# when it could plausibly attack a reviewer — i.e. live code/docs
+# payload. Lines that merely *contain* the patterns as data downgrade
+# to info: test/fixture paths (attack-string fixtures), doc paths
+# (specs/READMEs legitimately name the markers), and lines that define
+# a regex/pattern (detectors quote their own syntax — this very signal
+# self-matches otherwise).
+_INJECTION_DOC_PATH_RE = re.compile(
+    r"\.md$|(?:^|/)docs?/", re.IGNORECASE)
+_INJECTION_PATTERN_DEF_RE = re.compile(
+    r"re\.compile\(|re\.(?:IGNORECASE|DOTALL|MULTILINE|VERBOSE)\b"
+    r"|RegExp\(")
+
+
 def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     s = state.get("signals", {})
     findings: list[dict[str, Any]] = []
@@ -777,12 +791,22 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
             f"{f} is on the sensitive-config watchlist.", file=f))
 
     # FR-O25: deterministic prompt-injection detection — reported even
-    # if a reviewer model obeys the injected text.
+    # if a reviewer model obeys the injected text. Benign contexts
+    # (tests, docs, pattern-definition lines) downgrade warning -> info.
     for hit in s.get("prompt_injection", []):
+        f_file, line = hit.get("file"), hit.get("line", "")
+        benign = (
+            (f_file and _TEST_PATH_RE.search(f_file))
+            or (f_file and _INJECTION_DOC_PATH_RE.search(f_file))
+            or _INJECTION_PATTERN_DEF_RE.search(line)
+        )
         findings.append(_finding(
-            "security", "warning", "Possible prompt-injection attempt",
+            "security",
+            "info" if benign else "warning",
+            "Possible prompt-injection attempt"
+            + (" (low-risk context)" if benign else ""),
             f"Added line resembles an LLM directive or role marker: "
-            f"{hit['line'][:120]}", file=hit["file"]))
+            f"{line[:120]}", file=f_file))
 
     # FR-O24: deterministic vuln scan over the worktree when the diff
     # touched a dependency manifest/lockfile. Best-effort — degrades to

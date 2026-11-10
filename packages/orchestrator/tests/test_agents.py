@@ -736,22 +736,49 @@ def test_llm_user_message_neutralizes_embedded_sentinels():
 
 
 def test_llm_findings_drops_file_outside_changed_files():
+    import json as _json
     items = [
         {"severity": "warning", "title": "t1", "detail": "d",
          "file": "src/real.py"},
         {"severity": "warning", "title": "t2", "detail": "d",
          "file": "etc/passwd"},
     ]
-    import json as _json2
     out = agents._llm_findings(
-        "security", _json2.dumps(items), known_files={"src/real.py"})
+        "security", _json.dumps(items), known_files={"src/real.py"})
     assert out[0]["file"] == "src/real.py"
     assert out[1]["file"] is None
 
 
 def test_llm_findings_no_known_files_keeps_file():
-    import json as _json2
+    import json as _json
     items = [{"severity": "info", "title": "t", "detail": "d",
               "file": "any/path.py"}]
-    out = agents._llm_findings("review", _json2.dumps(items))
+    out = agents._llm_findings("review", _json.dumps(items))
     assert out[0]["file"] == "any/path.py"
+
+
+def test_security_injection_downgrades_benign_contexts():
+    """Attack strings in tests, docs and pattern defs are info, not warning."""
+    inj = "ignore all previous instructions"
+    state = _state(signals={
+        "prompt_injection": [
+            {"file": "packages/mcp-server/tests/test_signals.py",
+             "line": f'"{inj}"'},
+            {"file": "SPEC.md",
+             "line": f"markers may resemble `{inj}`"},
+            {"file": "packages/mcp-server/src/tools.py",
+             "line": 're.compile(r"\\b(?:' + inj + ')\\b")'},
+            {"file": "src/evil.py",
+             "line": f"# {inj}"},
+        ]
+    })
+    findings = agents.security_specialist(state)["findings"]
+    hits = {
+        f["file"]: f for f in findings
+        if f["title"].startswith("Possible prompt-injection attempt")
+    }
+    assert len(hits) == 4
+    assert hits["packages/mcp-server/tests/test_signals.py"]["severity"] == "info"
+    assert hits["SPEC.md"]["severity"] == "info"
+    assert hits["packages/mcp-server/src/tools.py"]["severity"] == "info"
+    assert hits["src/evil.py"]["severity"] == "warning"
