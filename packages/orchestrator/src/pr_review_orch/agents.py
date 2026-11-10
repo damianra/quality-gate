@@ -198,7 +198,7 @@ def _llm_enrich(
         out["active_pgids"] = pgids
         return out
 
-    found = _llm_findings(agent, meta.get("text") or "")
+    found = _llm_findings(agent, _strip_think(meta.get("text") or ""))
     if not found:
         out["findings"] = [_finding(
             agent, "info", "LLM enrichment unparseable",
