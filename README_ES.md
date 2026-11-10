@@ -83,14 +83,17 @@ O conectate al endpoint SSE que levanta compose:
 El comentario publicado siempre tiene esta forma:
 
 ```markdown
-## Validación funcional
+## Functional validation
 
-**Veredicto:** ✅ Aprobado | ❌ Cambios requeridos
+**Verdict:** ✅ Approved | ❌ Changes required
 
-- ✅/❌ **check** — detalle
+- ✅/⚠️/❌ **check** — detalle
 
 **Result:** <resumen>
 **Note:** <nota>
+
+**Metrics:** <una línea>
+<details><summary>LLM telemetry</summary>   # tabla por modelo, si hubo llamadas
 
 <!-- pr-review head:<sha7> -->
 ```
@@ -117,9 +120,14 @@ levanta automáticamente.
 ### Métricas
 
 Cada ejecución reporta un bloque `metrics` (JSON del CLI + línea
-`**Métricas:**` en el veredicto del PR): duración por nodo, llamadas LLM
-con tokens de prompt/completion y tiempos de procesos lanzados — para ver
-dónde se va el tiempo y los tokens.
+`**Metrics:**` en el veredicto del PR): duración por nodo, llamadas LLM
+con tokens de prompt/completion desglosados por modelo y tiempos de
+procesos lanzados — para ver dónde se va el tiempo y los tokens. Un
+bloque `<details>` plegable agrega telemetría por modelo: tokens (p+c),
+duración, tok/s de completion, delta de RSS del proceso y el footprint
+que reporta el proveedor (Ollama `/api/ps` → RAM/VRAM). Lo que un
+proveedor no devuelve se muestra como `—`; la telemetría nunca bloquea
+una ejecución.
 
 ### Proveedor de LLM (opcional)
 
@@ -142,7 +150,7 @@ para un resumen ejecutivo breve del veredicto, registrado en
 | `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
 | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
 | `custom` | `QG_LLM_API_KEY` | requiere `QG_LLM_BASE_URL` |
-| `devin-cli` | — (sesión `devin auth`) | subproceso local, sin URL |
+| `devin-cli` | — (sesión `devin auth`) | subproceso local (solo host), sin URL |
 
 Cada proveedor trae un modelo por defecto; se sobreescribe con
 `QG_LLM_MODEL`.
