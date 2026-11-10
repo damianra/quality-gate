@@ -227,7 +227,12 @@ duration lands in `node_durations`.
   Empty suffixed vars are ignored — unset means "inherit". Each role
   gets an independent provider/model/key/base_url/temperature/timeout/
   max_tokens, e.g. harness on local Ollama while specialists use
-  OpenRouter `:free` models. Unknown roles raise `LLMConfigError`.
+  OpenRouter `:free` models. `QG_LLM_JSON_MODE(_<ROLE>)` (truthy:
+  `1|true|yes|on`) sends `response_format:{type:json_object}` on the
+  OpenAI-compatible path — needed for reasoning/local models that
+  ignore the JSON contract; `_llm_findings` accepts a bare array, a
+  `{"findings": [...]}` wrapper or a single finding dict. Unknown
+  roles raise `LLMConfigError`.
 - **FR-O16 Specialist LLM wiring** — each specialist node builds its
   payload directly from `pr_context` (bounded diff + changed files +
   deterministic signals) and calls `complete_with_meta` with its own
@@ -499,6 +504,8 @@ volatile during early history edits; commits are identified by subject):
 | 49 | `docs`: FR-O4 test-file severity + signals schema in SPEC |
 | 50 | `fix(orchestrator)`: strip think tags in _llm_enrich (all roles) |
 | 51 | `docs`: FR-O16 reasoning-strip in SPEC |
+| 52 | `feat(orchestrator)`: QG_LLM_JSON_MODE + findings shape tolerance |
+| 53 | `docs`: FR-O15 json_mode knob in SPEC + .env.example |
 
 ## 11. Extension points (SDD backlog)
 
