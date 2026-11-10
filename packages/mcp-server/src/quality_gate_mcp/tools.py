@@ -37,20 +37,22 @@ def build_verdict_comment(
     note: str,
     head_sha: str,
     metrics_line: str = "",
+    metrics_detail: str = "",
 ) -> str:
     """Build the contractual verdict comment body.
 
-    Format (non-negotiable):
-      ``## Validación funcional`` heading, a veredicto line, one bullet per
-      check, Result/Note lines and the ``<!-- pr-review head:<sha7> -->``
-      idempotency marker.
+    Format (non-negotiable, English per FR-T1):
+      ``## Functional validation`` heading, a verdict line, one bullet per
+      check, Result/Note lines, the Metrics one-liner, an optional
+      collapsible telemetry block (``metrics_detail``), and the
+      ``<!-- pr-review head:<sha7> -->`` idempotency marker.
     """
     icon = "✅" if approve else "❌"
-    verdict = "Aprobado" if approve else "Cambios requeridos"
+    verdict = "Approved" if approve else "Changes required"
     lines = [
-        "## Validación funcional",
+        "## Functional validation",
         "",
-        f"**Veredicto:** {icon} {verdict}",
+        f"**Verdict:** {icon} {verdict}",
         "",
     ]
     for c in checks:
@@ -64,7 +66,16 @@ def build_verdict_comment(
     if note:
         lines.append(f"**Note:** {note}")
     if metrics_line:
-        lines += ["", f"**Métricas:** {metrics_line}"]
+        lines += ["", f"**Metrics:** {metrics_line}"]
+    if metrics_detail:
+        lines += [
+            "",
+            "<details><summary>LLM telemetry</summary>",
+            "",
+            metrics_detail,
+            "",
+            "</details>",
+        ]
     lines += ["", f"{MARKER_PREFIX}{head_sha[:7]} -->"]
     return "\n".join(lines)
 
@@ -399,6 +410,7 @@ def post_verdict(
     result: str = "",
     note: str = "",
     metrics_line: str = "",
+    metrics_detail: str = "",
 ) -> dict[str, Any]:
     """Post (or update) the contractual verdict comment on the PR.
 
@@ -412,7 +424,8 @@ def post_verdict(
         pr = gh.get_pr(slug, pr_number)
         head_sha = pr["head"]["sha"]
         body = build_verdict_comment(
-            approve, checks, result, note, head_sha, metrics_line=metrics_line
+            approve, checks, result, note, head_sha,
+            metrics_line=metrics_line, metrics_detail=metrics_detail,
         )
         comments = gh.list_issue_comments(slug, pr_number)
         existing = find_verdict_comment(comments)
