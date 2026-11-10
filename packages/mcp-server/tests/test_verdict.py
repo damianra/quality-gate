@@ -23,6 +23,8 @@ def test_verdict_comment_contract():
              "detail": "test file"},
             {"name": "Legacy", "passed": True, "detail": "no severity"},
             {"name": "Legacy fail", "passed": False, "detail": "no severity"},
+            {"name": "Future sev", "passed": False, "severity": "critical",
+             "detail": "unknown sev falls back"},
         ],
         result="2 findings",
         note="automated review",
@@ -35,6 +37,7 @@ def test_verdict_comment_contract():
     assert "- ⚠️ **Fixture token** — test file" in body
     assert "- ✅ **Legacy** — no severity" in body
     assert "- ❌ **Legacy fail** — no severity" in body
+    assert "- ❌ **Future sev** — unknown sev falls back" in body
     assert "**Result:** 2 findings" in body
     assert "**Note:** automated review" in body
     assert f"<!-- pr-review head:{HEAD[:7]} -->" in body

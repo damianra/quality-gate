@@ -54,9 +54,8 @@ def build_verdict_comment(
         "",
     ]
     for c in checks:
-        mark = _CHECK_ICONS.get(
-            c.get("severity") or ("info" if c.get("passed") else "blocker"),
-            "✅",
+        mark = _CHECK_ICONS.get(c.get("severity")) or (
+            "✅" if c.get("passed") else "❌"
         )
         detail = c.get("detail", "")
         lines.append(f"- {mark} **{c.get('name', 'check')}** — {detail}")
