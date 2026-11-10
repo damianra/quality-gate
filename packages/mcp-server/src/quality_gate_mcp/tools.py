@@ -96,6 +96,25 @@ _DEBUG_RE = re.compile(r"console\.(log|debug)\s*\(|\bdebugger\b")
 _TODO_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
 _DEP_LINE_RE = re.compile(r'"([@./\w-]+)"\s*:\s*"[~^<>=\d]')
 _COMMENT_PREFIXES = ("//", "#", "/*", "*", "*/", "<!--", "{/*")
+_COMMENT_LEAD_RE = re.compile(r"^\s*(?://+|#+|/\*+|\*+|<!--|\{/\*)\s*")
+_COMMENT_END_RE = re.compile(r"(?:\*/|-->)\s*$")
+# A comment line only counts as commented-out code when its content
+# looks like a statement (code tail, keyword + paren, or assignment);
+# explanatory prose/doc comments must not flag "dead code".
+_CODE_TAIL_RE = re.compile(r"[;{}()=<>]\s*$")
+_CODE_KW_RE = re.compile(
+    r"^(?:if|elif|else|for|while|switch|case|try|except|finally|do|with|"
+    r"return|const|let|var|function|def|class|import|from|require|export|"
+    r"await|async|new|throw|assert|print|static|public|private|void)\s*[(=({]"
+)
+_CODE_ASSIGN_RE = re.compile(r"^\s*[\w.\[\]'\"]+\s*=\s*\S")
+# Docs are always in scope — AGENTS.md requires them updated in the
+# same PR, so a path hinted only in the body must not flag them.
+_DOC_PATH_RE = re.compile(
+    r"(^|/)(readme|changelog|license|contributing|code_of_conduct|"
+    r"security)(\.[^/]*)?$|\.md$|(^|/)docs?/",
+    re.IGNORECASE,
+)
 _HINT_RE = re.compile(r"[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|json|jsonc|md|yml|yaml|css|scss)")
 
 
@@ -179,12 +198,21 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
     ]
     config_churn = [f for f in files if _is_sensitive(f)]
 
-    # commented_blocks: runs of >= COMMENTED_BLOCK_MIN added comment-only lines
+    # commented_blocks: runs of >= COMMENTED_BLOCK_MIN added comment-only
+    # lines whose content looks like code (prose comments don't count)
     commented_blocks: list[dict[str, Any]] = []
     run_file, run_len, run_start = None, 0, None
     for f, line in added:
         stripped = line.strip()
         is_comment = bool(stripped) and stripped.startswith(_COMMENT_PREFIXES)
+        if is_comment:
+            inner = _COMMENT_LEAD_RE.sub("", stripped)
+            inner = _COMMENT_END_RE.sub("", inner).strip()
+            is_comment = bool(inner) and (
+                _CODE_TAIL_RE.search(inner)
+                or _CODE_KW_RE.match(inner)
+                or _CODE_ASSIGN_RE.match(inner)
+            )
         if is_comment and f == run_file:
             run_len += 1
         elif is_comment:
@@ -202,7 +230,8 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
         files_outside_hint = [
             f
             for f in files
-            if not any(h in f or f in h or f.rsplit("/", 1)[-1] == h.rsplit("/", 1)[-1] for h in hints)
+            if not _DOC_PATH_RE.search(f)
+            and not any(h in f or f in h or f.rsplit("/", 1)[-1] == h.rsplit("/", 1)[-1] for h in hints)
         ]
     else:
         files_outside_hint = []
