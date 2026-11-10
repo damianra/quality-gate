@@ -411,15 +411,30 @@ def review_specialist(state: dict[str, Any]) -> dict[str, Any]:
 # SecurityAgent — secrets, dependencies, sensitive config churn
 # --------------------------------------------------------------------------- #
 
+# Test/fixture paths: secret-pattern hits here are almost always fixtures
+# (e.g. `token: 't'`, `'fake-token'`), so they downgrade to warning.
+_TEST_PATH_RE = re.compile(
+    r"(?:^|/)(?:tests?|__tests__|__mocks__|fixtures?|mocks?)(?:/|$)"
+    r"|\.(?:test|spec)\.[a-z0-9]+$"
+    r"|(?:^|/)test_[a-z0-9_]+\.[a-z0-9]+$",
+    re.IGNORECASE,
+)
+
 
 def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     s = state.get("signals", {})
     findings: list[dict[str, Any]] = []
 
-    for line in s.get("secret_candidates", []):
+    for cand in s.get("secret_candidates", []):
+        cand_file = cand.get("file")
+        cand_line = cand.get("line", "")
+        in_test = bool(cand_file) and _TEST_PATH_RE.search(cand_file)
         findings.append(_finding(
-            "security", "blocker", "Possible hardcoded secret",
-            f"Added line matches secret pattern: {line[:120]}"))
+            "security",
+            "warning" if in_test else "blocker",
+            "Possible hardcoded secret" + (" (test file)" if in_test else ""),
+            f"Added line matches secret pattern: {cand_line[:120]}",
+            file=cand_file))
 
     for dep in s.get("new_dependencies", []):
         findings.append(_finding(
