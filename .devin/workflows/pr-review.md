@@ -51,6 +51,13 @@ exercised once the system is deployed — it is not part of this gate.
    subprocesses, no secrets outside env vars, green suite, and no
    vibecoding leftovers.
 
+   It also scores **scope fidelity**: every diff path should be covered
+   by the PR body's declared paths (mirroring the `files_outside_hint`
+   signal, which treats docs as always in scope), and every
+   sensitive-config change (`.env*`, `compose.yaml`, workflows,
+   `Dockerfile`s, `deploy/*`) should carry a one-line safety note in
+   the body. Missing declarations are warnings, not blockers.
+
 6. Emit the verdict **in Spanish** using the contractual format:
 
    ```markdown
