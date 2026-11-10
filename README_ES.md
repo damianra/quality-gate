@@ -3,9 +3,10 @@
 Revisión autónoma de Pull Requests para repositorios Expo/React Native.
 Reemplaza la revisión manual: en cada PR el sistema perfila el diff, detecta
 *vibecoding* (ruido de whitespace, bloques comentados, TODOs, restos de
-debug, secretos, dependencias nuevas, cambios fuera de scope), corre
-validación estructural (`tsc --noEmit` / `node --check`) y publica un
-comentario contractual con el veredicto en GitHub.
+debug, secretos, dependencias nuevas, cambios fuera de scope, intentos
+de prompt-injection), corre validación estructural (`tsc --noEmit` /
+`node --check`) y publica un comentario contractual con el veredicto en
+GitHub.
 
 ## Arquitectura
 
@@ -175,6 +176,14 @@ forma independiente (p.ej. `QG_LLM_MODEL_QA`). El bloque base es la
 configuración del harness y el fallback compartido, de modo que un
 Ollama local puede manejar el harness mientras los especialistas usan
 modelos `:free` de OpenRouter (ver `.env.example`).
+
+El endurecimiento contra prompt-injection (FR-O25) está siempre activo:
+`analyze_diff` marca como warnings `prompt_injection` las líneas
+agregadas que parecen directivas a un LLM o marcadores de rol de
+chat-template, todo bloque de evidencia enviado a los modelos se
+envuelve en centinelas explícitos de datos no confiables, y los
+findings del LLM solo pueden referenciar archivos realmente modificados
+en el PR.
 
 ## Modo servicio (webhook)
 

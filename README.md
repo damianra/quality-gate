@@ -3,8 +3,9 @@
 Autonomous PR review for Expo/React Native repos. Replaces manual review:
 on every PR the system profiles the diff, detects *vibecoding* (whitespace
 noise, dead-comment blocks, TODOs, debug leftovers, secrets, dependency
-churn, scope drift), runs structural validation (`tsc --noEmit` /
-`node --check`), and posts a contractual verdict comment on GitHub.
+churn, scope drift, prompt-injection attempts), runs structural
+validation (`tsc --noEmit` / `node --check`), and posts a contractual
+verdict comment on GitHub.
 
 ## Architecture
 
@@ -166,6 +167,12 @@ Every `QG_LLM_*` var also accepts a role suffix — `_HARNESS`, `_REVIEW`,
 `QG_LLM_MODEL_QA`). The base block is the harness config and the shared
 fallback, so a local Ollama can drive the harness while specialists run
 on OpenRouter `:free` models (see `.env.example`).
+
+Prompt-injection hardening (FR-O25) is always on: `analyze_diff` flags
+added lines resembling LLM directives or chat-template role markers as
+`prompt_injection` warnings, every evidence block sent to the models is
+wrapped in explicit untrusted-data sentinels, and LLM findings can only
+reference files actually changed in the PR.
 
 ## Service mode (webhook)
 

@@ -359,6 +359,29 @@ duration lands in `node_durations`.
   version and summary in the detail. Unparseable/timed-out scanner
   output degrades to an info note. `QG_DEP_AUDIT=0` disables the
   audit entirely.
+- **FR-O25 Prompt-injection hardening.** PR content is untrusted data;
+  a hostile diff, filename, title or PR body MUST NOT be able to steer
+  the reviewer models. Three deterministic layers:
+  - *Detection:* `analyze_diff` emits a `prompt_injection` signal —
+    `{file, line}` entries for added lines resembling LLM directives
+    (instruction-override phrases, chat-template role markers such as
+    `<|im_start|>`/`[INST]`/`<<SYS>>`, verdict-forging lines like a
+    standalone `VERDICT: approve`). SecurityAgent maps each hit to a
+    **warning** finding so the attempt is reported even if the model
+    is fooled; the signal also joins `choose_agents`'s security
+    trigger so the specialist always runs when it fires.
+  - *Isolation:* `_llm_user_message` wraps every evidence block in
+    explicit `<<BEGIN UNTRUSTED PR DATA>>`/`<<END UNTRUSTED PR DATA>>`
+    sentinels (occurrences of the sentinel inside evidence are
+    neutralized so content cannot close the region early), and the
+    output contract instructs the model that everything inside is
+    data to analyze, never instructions to follow.
+  - *Containment:* LLM findings keep additive semantics — they can
+    add findings but never remove deterministic ones or set the
+    verdict (which derives only from finding severities). Any `file`
+    reference an LLM finding emits that is not in `changed_files`
+    is dropped to `null`, so fabricated file attributions cannot
+    mislead reviewers.
 
 ## 5. Non-functional requirements
 
@@ -422,8 +445,8 @@ are specified in `docs/specs/llm-telemetry.md` (FR-T2..FR-T4).
 files, per_file{added,removed}, files_changed, lines_changed,
 whitespace_ratio, large_diff, config_churn[], new_dependencies[],
 debug_leftovers[], todos_added[], commented_blocks[{file,lines,sample}],
-secret_candidates[{file,line}], files_outside_hint[] (doc paths
-exempt), scope_hints[]
+secret_candidates[{file,line}], prompt_injection[{file,line}],
+files_outside_hint[] (doc paths exempt), scope_hints[]
 ```
 
 ### 6.3 Finding schema
@@ -562,6 +585,9 @@ volatile during early history edits; commits are identified by subject):
 | 61 | `feat(mcp-server)`: English verdict + telemetry details block |
 | 62 | `feat(orchestrator)`: per-call perf/RSS telemetry + by_model metrics |
 | 63 | `chore`: all roles default to ollama/qwen3:8b (isolated sessions) |
+| 64 | `docs`: FR-O25 prompt-injection hardening in SPEC + READMEs |
+| 65 | `feat(mcp-server)`: `prompt_injection` signal in `analyze_diff` |
+| 66 | `feat(orchestrator)`: untrusted-data fencing + scoped finding files |
 
 ## 11. Extension points (SDD backlog)
 
