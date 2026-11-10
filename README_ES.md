@@ -194,8 +194,10 @@ docker compose up -d ingress nginx
 # LLM: el ingress apunta por defecto a un ollama del HOST
 # (http://localhost:11434, vía host.docker.internal) para que el modelo
 # use todos los recursos de la máquina — alcanza con `ollama serve` +
-# `ollama pull qwen3:8b` en el host. Solo si el host no tiene ollama,
-# caé al contenedor:
+# `ollama pull qwen3:8b` en el host. Prompts >4k chocan con el default
+# num_ctx=4096 de ollama — ver la nota de tuning de ctx en
+# docs/local-webhook-setup.md para el fix de un comando.
+# Solo si el host no tiene ollama, caé al contenedor:
 docker compose --profile llm up -d ollama
 docker compose exec ollama ollama pull qwen3:8b
 QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
