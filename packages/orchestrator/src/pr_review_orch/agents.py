@@ -72,7 +72,14 @@ _LLM_MAX_FINDINGS = 10
 
 
 def _llm_user_message(state: dict[str, Any]) -> str:
-    """User message for specialist LLM calls: signals + bounded diff."""
+    """User message for specialist LLM calls: signals + bounded evidence.
+
+    FR-O23: besides the diff, ships the full contents of changed files
+    and the dependent names gathered by ``build_pr_context``. Every
+    evidence block has its own char cap (``QG_PROMPT_MAX_DIFF_CHARS``,
+    ``QG_PROMPT_MAX_FILES_CHARS``) so oversized PRs still fit the
+    deployed model context; truncated sections are flagged.
+    """
     ctx = state.get("pr_context") or {}
     signals = state.get("signals") or {}
     signal_keys = (
@@ -80,6 +87,11 @@ def _llm_user_message(state: dict[str, Any]) -> str:
         "todos_added", "debug_leftovers", "secret_candidates",
         "new_dependencies", "config_churn",
     )
+
+    raw_diff = ctx.get("diff_text") or "(empty)"
+    diff = raw_diff[: config.PROMPT_MAX_DIFF_CHARS]
+    diff_cut = ctx.get("truncated") or len(diff) < len(raw_diff)
+
     parts = [
         f"PR #{state.get('pr_number')}: {state.get('pr_title', '')}",
         f"base: {state.get('base_ref', '')} "
@@ -91,10 +103,38 @@ def _llm_user_message(state: dict[str, Any]) -> str:
         "## Changed files",
         "\n".join(ctx.get("changed_files") or []),
         "",
-        ("## Diff (truncated to scope budget)"
-         if ctx.get("truncated") else "## Diff"),
-        ctx.get("diff_text") or "(empty)",
+        ("## Diff (truncated to scope/prompt budget)"
+         if diff_cut else "## Diff"),
+        diff,
     ]
+
+    contents = ctx.get("file_contents") or {}
+    if contents:
+        parts += ["", "## File contents"]
+        budget = config.PROMPT_MAX_FILES_CHARS
+        omitted = 0
+        files_cut = False
+        for rel, text in contents.items():
+            if budget <= 0:
+                omitted += 1
+                continue
+            if len(text) > budget:
+                text = text[:budget]
+                files_cut = True
+            budget -= len(text)
+            parts += [f"### {rel}", "```", text, "```"]
+        if omitted or files_cut:
+            parts.append(
+                f"(file contents truncated to prompt budget"
+                + (f"; {omitted} file(s) omitted)" if omitted else ")"))
+
+    related = ctx.get("related_files") or []
+    if related:
+        parts += [
+            "", "## Related files (dependents, not shown)",
+            "\n".join(related[:50]),
+        ]
+
     return "\n".join(parts)
 
 
@@ -453,6 +493,194 @@ def review_specialist(state: dict[str, Any]) -> dict[str, Any]:
 # SecurityAgent — secrets, dependencies, sensitive config churn
 # --------------------------------------------------------------------------- #
 
+#: Manifest/lockfile basenames whose diff triggers the FR-O24 audit.
+_DEP_MANIFESTS = {
+    "package.json", "package-lock.json", "npm-shrinkwrap.json",
+    "yarn.lock", "pnpm-lock.yaml",
+    "pyproject.toml", "uv.lock", "pipfile", "pipfile.lock",
+    "go.mod", "go.sum", "cargo.toml", "cargo.lock",
+    "gemfile", "gemfile.lock", "composer.json", "composer.lock",
+}
+_NPM_MANIFESTS = {
+    "package.json", "package-lock.json", "npm-shrinkwrap.json",
+    "yarn.lock", "pnpm-lock.yaml",
+}
+_PY_MANIFESTS = {"pyproject.toml", "uv.lock", "pipfile", "pipfile.lock"}
+
+_MAX_AUDIT_FINDINGS = 10
+_AUDIT_SEVERITIES = {"critical": "blocker", "high": "warning"}
+
+
+def _is_dep_manifest(path: str) -> bool:
+    name = Path(path).name.lower()
+    return name in _DEP_MANIFESTS or (
+        name.startswith("requirements") and name.endswith(".txt"))
+
+
+def _audit_command(manifests: list[str]) -> list[str] | None:
+    """Pick the best available scanner for the changed manifests."""
+    if shutil.which("osv-scanner"):
+        return ["osv-scanner", "scan", "source", "-r",
+                "--format", "json", "--no-resolve", "."]
+    names = {Path(m).name.lower() for m in manifests}
+    if names & _NPM_MANIFESTS and shutil.which("npm"):
+        return ["npm", "audit", "--omit=dev", "--json"]
+    py_hit = names & _PY_MANIFESTS or any(
+        Path(m).name.lower().startswith("requirements") for m in manifests)
+    if py_hit and shutil.which("pip-audit"):
+        return ["pip-audit", "--format", "json"]
+    return None
+
+
+def _parse_osv(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten osv-scanner results into {id, package, version, severity,
+    fixed, summary}."""
+    out: list[dict[str, Any]] = []
+    for res in data.get("results") or []:
+        for pkg in res.get("packages") or []:
+            info = pkg.get("package") or {}
+            for v in pkg.get("vulnerabilities") or []:
+                sev = str(
+                    (v.get("database_specific") or {}).get("severity", "")
+                ).lower()
+                fixed = ""
+                for aff in v.get("affected") or []:
+                    for rng in aff.get("ranges") or []:
+                        for ev in rng.get("events") or []:
+                            if ev.get("fixed"):
+                                fixed = ev["fixed"]
+                                break
+                        if fixed:
+                            break
+                    if fixed:
+                        break
+                out.append({
+                    "id": str(v.get("id", "")),
+                    "package": str(info.get("name", "")),
+                    "version": str(info.get("version", "")),
+                    "severity": sev,
+                    "fixed": fixed,
+                    "summary": str(v.get("summary", "")).strip(),
+                })
+    return out
+
+
+def _parse_npm_audit(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten `npm audit --json` (npm v7+) vulnerabilities."""
+    out: list[dict[str, Any]] = []
+    for name, v in (data.get("vulnerabilities") or {}).items():
+        via = next(
+            (x.get("title") for x in v.get("via") or []
+             if isinstance(x, dict) and x.get("title")), "")
+        fix = v.get("fixAvailable")
+        fixed = fix.get("version", "") if isinstance(fix, dict) else ""
+        out.append({
+            "id": str(via.split(" ", 1)[0]) if via else "",
+            "package": name,
+            "version": str(v.get("range", "")),
+            "severity": str(v.get("severity", "")).lower(),
+            "fixed": fixed,
+            "summary": str(via),
+        })
+    return out
+
+
+def _parse_pip_audit(data: Any) -> list[dict[str, Any]]:
+    """Flatten `pip-audit --format json` (list of dependency objects)."""
+    out: list[dict[str, Any]] = []
+    for dep in data if isinstance(data, list) else []:
+        for v in dep.get("vulns") or []:
+            fix = v.get("fix_versions") or []
+            out.append({
+                "id": str(v.get("id", "")),
+                "package": str(dep.get("name", "")),
+                "version": str(dep.get("version", "")),
+                "severity": "",
+                "fixed": fix[0] if fix else "",
+                "summary": str(v.get("description", "")).strip()[:200],
+            })
+    return out
+
+
+def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
+    """Run a vuln scanner over the worktree (FR-O24).
+
+    Deterministic, best-effort: absent/timeout/unparseable degrade to an
+    info note — the audit never rejects a PR by itself beyond real
+    critical CVEs (blocker) or high ones (warning).
+    """
+    out: dict[str, Any] = {"findings": [], "pgids": [], "processes": []}
+    if not config.DEP_AUDIT_ENABLED:
+        return out
+    manifests = [f for f in changed if _is_dep_manifest(f)]
+    if not manifests:
+        return out
+    cmd = _audit_command(manifests)
+    if cmd is None:
+        out["findings"].append(_finding(
+            "security", "info", "Dependency audit skipped",
+            "Dependency manifest changed but no supported scanner on the "
+            "host (osv-scanner / npm / pip-audit)."))
+        return out
+
+    res = mcp_tools.spawn_process(
+        str(repo), cmd[0], cmd[1:], timeout=config.AUDIT_PROCESS_TIMEOUT)
+    if res["pgid"] > 0:
+        out["pgids"].append(res["pgid"])
+    out["processes"].append({
+        "agent": "security",
+        "command": " ".join(cmd),
+        "duration_s": res.get("duration_s", 0.0),
+        "exit_code": res["exit_code"],
+        "timed_out": res["timed_out"],
+    })
+    if res["timed_out"]:
+        out["findings"].append(_finding(
+            "security", "info", "Dependency audit timed out",
+            f"`{' '.join(cmd)}` exceeded "
+            f"{config.AUDIT_PROCESS_TIMEOUT}s."))
+        return out
+    try:
+        data = json.loads(res["stdout"] or "{}")
+    except ValueError:
+        out["findings"].append(_finding(
+            "security", "info", "Dependency audit output unparseable",
+            f"`{' '.join(cmd)}` exited {res['exit_code']} with non-JSON "
+            "output."))
+        return out
+
+    vulns = (
+        _parse_osv(data) if cmd[0] == "osv-scanner"
+        else _parse_npm_audit(data) if cmd[0] == "npm"
+        else _parse_pip_audit(data)
+    )
+    if not vulns:
+        out["findings"].append(_finding(
+            "security", "info", "Dependency audit clean",
+            f"`{cmd[0]}` reported no known vulnerabilities."))
+        return out
+    for v in vulns[:_MAX_AUDIT_FINDINGS]:
+        sev = _AUDIT_SEVERITIES.get(v["severity"], "info")
+        label = v["package"] + (
+            f"@{v['version']}" if v["version"] else "")
+        detail = (
+            f"{v['id'] + ' — ' if v['id'] else ''}"
+            f"{v['severity'] or 'unknown'} severity"
+            + (f"; fixed in {v['fixed']}" if v["fixed"] else "")
+            + (f". {v['summary'][:150]}" if v["summary"] else ""))
+        out["findings"].append(_finding(
+            "security", sev, f"Vulnerable dependency: {label}", detail))
+    extra = len(vulns) - _MAX_AUDIT_FINDINGS
+    if extra > 0:
+        out["findings"].append(_finding(
+            "security", "info", "More vulnerable dependencies",
+            f"{extra} additional vulnerable package(s) omitted; "
+            "run the scanner locally for the full list."))
+    return out
+
+
+
+
 # Test/fixture paths: secret-pattern hits here are almost always fixtures
 # (e.g. `token: 't'`, `'fake-token'`), so they downgrade to warning.
 _TEST_PATH_RE = re.compile(
@@ -489,6 +717,15 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
             "security", "warning", "Sensitive config modified",
             f"{f} is on the sensitive-config watchlist.", file=f))
 
+    # FR-O24: deterministic vuln scan over the worktree when the diff
+    # touched a dependency manifest/lockfile. Best-effort — degrades to
+    # info notes when no scanner is installed or the output is unusable.
+    audit = _dependency_audit(
+        Path(state["repo_path"]),
+        [f["filename"] for f in state.get("files", [])],
+    )
+    findings += audit["findings"]
+
     # FR-O16: optional LLM pass with the security role config; degrades to
     # info notes on any failure — never removes deterministic findings.
     enrich = _llm_enrich("security", SECURITY_PROMPT, state)
@@ -496,7 +733,8 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "findings": findings,
         "llm_calls": enrich["llm_calls"],
-        "active_pgids": enrich["active_pgids"],
+        "active_pgids": audit["pgids"] + enrich["active_pgids"],
+        "processes": audit["processes"],
     }
 
 

@@ -203,6 +203,8 @@ duration lands in `node_durations`.
   `dist`, `build`, `__pycache__`, `.venv`, `coverage`, `.next`, `.expo`;
   ≤ 5000 files scanned). Hard caps: `QG_SCOPE_MAX_FILES`,
   `QG_SCOPE_MAX_CHARS`; `truncated` flag reports when caps kicked in.
+  The gathered contents feed specialist LLM prompts per FR-O23 —
+  specialists review this scope, not the whole repo.
 - **FR-O13 LLM provider (optional)** — `llm.py` resolves
   `QG_LLM_PROVIDER` ∈ {ollama, openai, anthropic, nvidia, openrouter,
   custom, devin-cli}; OpenAI-compatible providers share one code path,
@@ -328,6 +330,33 @@ duration lands in `node_durations`.
   `client_max_body_size` (default 1 MB) before proxying. The service
   logs event metadata only (repo, pr, sha, action) — never signatures,
   token or body. Clone failures, signature failures and allowlist
+- **FR-O23 Specialist prompt evidence.** `_llm_user_message` ships, in
+  addition to the diff, the full contents of changed files and the
+  names of direct dependents gathered by `build_pr_context` (FR-O12) —
+  the model reviews real code, not only hunks. Each evidence block has
+  its own char cap so oversized PRs still fit the model context:
+  `QG_PROMPT_MAX_DIFF_CHARS` (default 16000, the diff gets priority)
+  and `QG_PROMPT_MAX_FILES_CHARS` (default 12000, consumed file order,
+  files beyond the cap listed as "(N more files omitted)"). Truncated
+  sections are flagged in the prompt so the model knows the evidence
+  is partial. Context budgets remain in `config.py` for tuning
+  against the deployed `num_ctx`.
+- **FR-O24 Dependency audit (SecurityAgent).** When the diff touches a
+  dependency manifest/lockfile (`package*.json`, `requirements*.txt`,
+  `pyproject.toml`, `uv.lock`, `Pipfile*`, `go.mod`, `go.sum`,
+  `Cargo.toml`, `Cargo.lock`, `Gemfile*`, `composer.*`), the security
+  specialist runs a vulnerability scanner over the worktree via
+  `spawn_process` (argv only, new process group, pgid registered in
+  `active_pgids`, `QG_AUDIT_PROCESS_TIMEOUT` default 120s). Scanner
+  preference: `osv-scanner` (`-r` on the worktree) covers every listed
+  ecosystem; fallbacks `npm audit --omit=dev --json` (npm) and
+  `pip-audit` (Python) when osv-scanner is absent. No scanner on the
+  host degrades to an info note — audit absence never rejects a PR.
+  Results map to findings capped at 10: critical → blocker, high →
+  warning, everything else → info, with id, package@version, fixed
+  version and summary in the detail. Unparseable/timed-out scanner
+  output degrades to an info note. `QG_DEP_AUDIT=0` disables the
+  audit entirely.
   denials are logged and dropped; they never reach the graph. PR
   comments stay idempotent via the existing marker (INV-4).
 
@@ -427,7 +456,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT` |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |

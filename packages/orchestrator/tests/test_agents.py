@@ -1,5 +1,7 @@
 """Specialist selection + deterministic findings + verdict synthesis."""
 
+from pathlib import Path
+
 from pr_review_orch import agents
 from pr_review_orch.graph import synthesizer_node
 
@@ -472,3 +474,185 @@ def test_harness_digest_includes_finding_details():
     assert "LLM: Interpolación sin quoting" in msg
     assert "sin comillas" in msg          # detail content reaches prompt
     assert "blocker" in msg
+
+
+# -- Specialist prompt evidence (FR-O23) ------------------------------------- #
+
+
+def test_user_message_ships_file_contents_and_dependents():
+    state = _state(pr_context={
+        "diff_text": "diff --git a/x b/x",
+        "changed_files": ["src/a.js"],
+        "file_contents": {"src/a.js": "const x = 1;\n"},
+        "related_files": ["src/b.js"],
+    })
+    msg = agents._llm_user_message(state)
+    assert "## File contents" in msg
+    assert "### src/a.js" in msg
+    assert "const x = 1;" in msg
+    assert "## Related files" in msg and "src/b.js" in msg
+    assert "## Diff" in msg and "truncated" not in msg
+
+
+def test_user_message_caps_diff(monkeypatch):
+    monkeypatch.setattr(agents.config, "PROMPT_MAX_DIFF_CHARS", 10)
+    state = _state(pr_context={
+        "diff_text": "x" * 100, "changed_files": [], "truncated": False})
+    msg = agents._llm_user_message(state)
+    assert "## Diff (truncated" in msg
+    assert "x" * 11 not in msg
+
+
+def test_user_message_caps_file_contents(monkeypatch):
+    monkeypatch.setattr(agents.config, "PROMPT_MAX_FILES_CHARS", 8)
+    state = _state(pr_context={
+        "diff_text": "d", "changed_files": ["a", "b"],
+        "file_contents": {"a": "1" * 20, "b": "2" * 20},
+    })
+    msg = agents._llm_user_message(state)
+    assert "file(s) omitted" in msg or "truncated to prompt budget" in msg
+
+
+def test_user_message_without_file_contents_unchanged():
+    state = _state(pr_context={
+        "diff_text": "d", "changed_files": ["a"]})
+    msg = agents._llm_user_message(state)
+    assert "## File contents" not in msg
+    assert "## Related files" not in msg
+
+
+# -- Dependency audit (FR-O24) ----------------------------------------------- #
+
+
+def test_dep_manifest_matching():
+    assert agents._is_dep_manifest("pkg/package.json")
+    assert agents._is_dep_manifest("requirements-dev.txt")
+    assert agents._is_dep_manifest("backend/uv.lock")
+    assert not agents._is_dep_manifest("src/app.js")
+    assert not agents._is_dep_manifest("docs/requirements.md")
+
+
+def test_audit_skipped_without_manifest(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        lambda *a, **k: called.append(1) or {})
+    out = agents._dependency_audit(Path("/nonexistent"), ["src/app.js"])
+    assert out["findings"] == [] and called == []
+
+
+def test_audit_no_scanner_degrades_info(monkeypatch):
+    monkeypatch.setattr(agents.shutil, "which", lambda _x: None)
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    assert out["findings"][0]["severity"] == "info"
+    assert "audit skipped" in out["findings"][0]["title"].lower()
+
+
+def _fake_spawn(payload: str, pgid: int = 4242):
+    def _spawn(repo, cmd, args, timeout=None):
+        return {"pgid": pgid, "stdout": payload, "stderr": "",
+                "exit_code": 1, "timed_out": False, "duration_s": 0.1}
+    return _spawn
+
+
+_OSV_JSON = '{"results": [{"source": {"path": "package-lock.json"}, "packages": [{' \
+    '"package": {"name": "lodash", "version": "4.17.20", "ecosystem": "npm"},' \
+    ' "vulnerabilities": [{"id": "GHSA-jf85-cpcp-j695",' \
+    ' "summary": "Prototype pollution",' \
+    ' "database_specific": {"severity": "CRITICAL"},' \
+    ' "affected": [{"ranges": [{"events": [{"introduced": "0"},' \
+    ' {"fixed": "4.17.21"}]}]}]}]}]}]}'
+
+
+def test_audit_osv_critical_maps_blocker(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process", _fake_spawn(_OSV_JSON))
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    f = out["findings"][0]
+    assert f["severity"] == "blocker"
+    assert "lodash" in f["title"] and "4.17.20" in f["title"]
+    assert "GHSA-jf85-cpcp-j695" in f["detail"]
+    assert "fixed in 4.17.21" in f["detail"]
+    assert out["pgids"] == [4242]
+    assert out["processes"][0]["command"].startswith("osv-scanner")
+
+
+def test_audit_clean_run_notes_info(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process", _fake_spawn('{"results": []}'))
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    assert out["findings"][0]["title"] == "Dependency audit clean"
+
+
+def test_audit_unparseable_output_degrades(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process", _fake_spawn("not json"))
+    out = agents._dependency_audit(Path("/nonexistent"), ["uv.lock"])
+    assert out["findings"][0]["severity"] == "info"
+    assert "unparseable" in out["findings"][0]["title"].lower()
+
+
+def test_audit_timeout_degrades(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    def _timeout(repo, cmd, args, timeout=None):
+        return {"pgid": 9, "stdout": "", "stderr": "",
+                "exit_code": -1, "timed_out": True, "duration_s": 120.0}
+    monkeypatch.setattr(agents.mcp_tools, "spawn_process", _timeout)
+    out = agents._dependency_audit(Path("/nonexistent"), ["go.mod"])
+    assert out["findings"][0]["severity"] == "info"
+    assert out["pgids"] == [9]
+
+
+def test_audit_disabled_by_env(monkeypatch):
+    monkeypatch.setattr(agents.config, "DEP_AUDIT_ENABLED", False)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("spawned")))
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    assert out == {"findings": [], "pgids": [], "processes": []}
+
+
+def test_npm_audit_parser():
+    data = {"vulnerabilities": {"minimist": {
+        "severity": "critical", "range": ">=0.0.1",
+        "via": [{"title": "Prototype Pollution in minimist"}],
+        "fixAvailable": {"version": "1.2.8"}}}}
+    out = agents._parse_npm_audit(data)
+    assert out[0]["package"] == "minimist"
+    assert out[0]["severity"] == "critical"
+    assert out[0]["fixed"] == "1.2.8"
+
+
+def test_pip_audit_parser():
+    data = [{"name": "requests", "version": "2.19.0", "vulns": [
+        {"id": "PYSEC-2018-28", "fix_versions": ["2.20.0"],
+         "description": "cert injection"}]}]
+    out = agents._parse_pip_audit(data)
+    assert out[0]["id"] == "PYSEC-2018-28"
+    assert out[0]["fixed"] == "2.20.0"
+
+
+def test_security_specialist_registers_audit_process(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process", _fake_spawn('{"results": []}'))
+    state = _state(
+        signals={}, files=[{"filename": "package.json", "status": "modified"}])
+    out = agents.security_specialist(state)
+    assert any(f["title"] == "Dependency audit clean"
+               for f in out["findings"])
+    assert out["active_pgids"] == [4242]
+    assert out["processes"][0]["agent"] == "security"
