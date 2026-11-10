@@ -134,7 +134,10 @@ and unit-testable without the MCP runtime).
   (`QG_KILL_GRACE_SECONDS` grace).
 - **FR-M7 `post_verdict(...)`** — build the contractual comment and
   create it, or update in place the latest comment containing any
-  pr-review marker. Returns `{action: created|updated, url, head_sha}`.
+  pr-review marker WHILE it remains the most recent comment in the
+  thread; if the thread continued after it (someone replied), a fresh
+  comment is posted below the reply instead of rewriting the old one.
+  Returns `{action: created|updated, url, head_sha}`.
 - **FR-M8 `create_pr(repo_path, head, title, body, base)`** — open a PR;
   on HTTP 422 return the existing PR for that head instead of failing.
 - **FR-M9 Transports** — `stdio` by default; `--transport sse --host --port`
@@ -210,6 +213,7 @@ duration lands in `node_durations`.
   in `llm_calls`. `QG_LLM_MAX_TOKENS` MUST cover the expected response
   shape — free-tier models with mandatory reasoning burn the budget on
   chain-of-thought and can return empty `text` with `truncated=True`.
+  The default cap is 20000 output tokens.
 - **FR-O15 Role-scoped LLM config** — every `QG_LLM_*` setting accepts a
   role suffix `QG_LLM_<SETTING>_<ROLE>` with ROLE ∈ {HARNESS, REVIEW,
   SECURITY, QA} (case-insensitive). `LLMConfig.for_role(role)` resolves
@@ -481,6 +485,9 @@ volatile during early history edits; commits are identified by subject):
 | 42 | `docs`: FR-O16a harness summarization in SPEC + READMEs |
 | 43 | `fix(orchestrator)`: strip think tags; English detail-based summary |
 | 44 | `docs`: FR-O16a english/detail digest in SPEC |
+| 45 | `feat(mcp-server)`: fresh verdict comment when the thread continued |
+| 46 | `chore`: default `QG_LLM_MAX_TOKENS` 20000 |
+| 47 | `docs`: FR-M7 reply semantics + token default in SPEC |
 
 ## 11. Extension points (SDD backlog)
 

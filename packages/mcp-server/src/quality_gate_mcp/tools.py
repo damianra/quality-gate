@@ -361,8 +361,10 @@ def post_verdict(
 ) -> dict[str, Any]:
     """Post (or update) the contractual verdict comment on the PR.
 
-    Idempotent: if a previous verdict comment exists (any pr-review marker),
-    it is updated in place rather than duplicated.
+    Idempotent: the latest comment containing a pr-review marker is
+    updated in place WHILE it remains the most recent comment in the
+    thread; if the thread continued after it (someone replied), a fresh
+    comment is posted instead of rewriting history above the reply.
     """
     slug = git_ops.get_remote_slug(repo_path)
     with GitHubClient() as gh:
@@ -371,7 +373,12 @@ def post_verdict(
         body = build_verdict_comment(
             approve, checks, result, note, head_sha, metrics_line=metrics_line
         )
-        existing = find_verdict_comment(gh.list_issue_comments(slug, pr_number))
+        comments = gh.list_issue_comments(slug, pr_number)
+        existing = find_verdict_comment(comments)
+        if existing is not None and comments[-1]["id"] != existing["id"]:
+            # The thread continued after our verdict — keep the old
+            # comment untouched and post a fresh one below the reply.
+            existing = None
         if existing is not None:
             comment = gh.update_issue_comment(slug, existing["id"], body)
             action = "updated"

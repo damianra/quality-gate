@@ -169,7 +169,7 @@ class LLMConfig:
     base_url: str = ""
     temperature: float = 0.0
     timeout: float = _DEFAULT_TIMEOUT
-    max_tokens: int = 2048
+    max_tokens: int = 20000
     role: str = ""
 
     @classmethod
@@ -215,7 +215,7 @@ class LLMConfig:
             base_url=base_url,
             temperature=float(env.get("QG_LLM_TEMPERATURE", "0.0")),
             timeout=float(env.get("QG_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT))),
-            max_tokens=int(env.get("QG_LLM_MAX_TOKENS", "2048")),
+            max_tokens=int(env.get("QG_LLM_MAX_TOKENS", "20000")),
         )
 
     @classmethod
