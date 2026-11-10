@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -216,12 +217,34 @@ def _llm_enrich(
 # Harness (orchestrator) summarization
 # --------------------------------------------------------------------------- #
 
-_HARNESS_PROMPT = """You are the quality-gate orchestrator. Write a short
-executive summary of this PR review verdict in Spanish: overall risk,
-the main themes behind blockers/warnings, and the recommended action.
-Maximum 3 sentences, plain text, no markdown."""
+_HARNESS_PROMPT = """You are the quality-gate orchestrator. Based on the
+specialist findings below, write a short executive summary of this PR
+review verdict in English: overall risk, the main themes behind
+blockers/warnings, and the recommended action. Maximum 3 sentences,
+plain text, no markdown, no thinking tags."""
 
 _HARNESS_MAX_FINDINGS = 8
+_HARNESS_DETAIL_CHARS = 240
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_TAG_RE = re.compile(r"</?think>", re.IGNORECASE)
+
+
+def _strip_think(text: str) -> str:
+    """Remove reasoning blocks (``<think>…</think>``) from model output.
+
+    Qwen-class reasoning models emit their chain-of-thought inside
+    ``<think>`` tags; an unclosed tag (truncated output) is also dropped
+    up to the first paragraph break so the summary stays clean prose.
+    """
+    text = _THINK_RE.sub("", text)
+    if _THINK_TAG_RE.search(text):
+        # Unclosed <think>: keep only what follows the reasoning section.
+        tail = _THINK_TAG_RE.split(text)[-1]
+        text = tail.split("\n\n", 1)[-1] if "\n\n" in tail else tail
+    return "\n".join(
+        line for line in text.splitlines() if not _THINK_TAG_RE.search(line)
+    ).strip()
 
 
 def _harness_user_message(
@@ -234,16 +257,19 @@ def _harness_user_message(
     counts = {s: sum(1 for f in findings if f["severity"] == s)
               for s in rank}
     lines = [
-        f"PR: {state.get('pr_title', '(sin título)')}",
+        f"PR: {state.get('pr_title', '(untitled)')}",
         f"Verdict: {'approved' if approve else 'changes required'}",
         f"Findings: {counts['blocker']} blocker, {counts['warning']} "
         f"warning, {counts['info']} info",
         "",
-        "Top findings:",
+        "Top findings (specialist analysis):",
     ]
-    lines += [
-        f"- [{f['severity']}][{f['agent']}] {f['title']}" for f in top
-    ]
+    for f in top:
+        detail = (f.get("detail") or "").replace("\n", " ")
+        lines.append(
+            f"- [{f['severity']}][{f['agent']}] {f['title']}"
+            + (f" — {detail[:_HARNESS_DETAIL_CHARS]}" if detail else "")
+        )
     return "\n".join(lines)
 
 
@@ -279,7 +305,7 @@ def harness_summarize(
 
     if meta.get("pgid"):
         out["active_pgids"] = [meta["pgid"]]
-    text = (meta.get("text") or "").strip()
+    text = _strip_think(meta.get("text") or "")
     status = "truncated" if meta.get("truncated") else "ok"
     if not text:
         status = "unparseable"
