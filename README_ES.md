@@ -129,7 +129,10 @@ en variables de entorno (`QG_LLM_API_KEY` o la variable canónica del
 proveedor). Los especialistas `review`, `security` y `qa` llaman cada uno
 a su config de rol sobre el `pr_context` acotado; los findings LLM
 aparecen con prefijo `LLM:` en el veredicto y cualquier fallo degrada a
-una nota info — nunca rechaza un PR por sí solo.
+una nota info — nunca rechaza un PR por sí solo. El sintetizador también
+llama al rol `harness` (la config base `QG_LLM_*` — p. ej. Ollama local)
+para un resumen ejecutivo breve del veredicto, registrado en
+`llm_call_metrics` como cualquier otro rol.
 
 | `QG_LLM_PROVIDER` | Variable de clave (fallback) | Base URL por defecto |
 |---|---|---|

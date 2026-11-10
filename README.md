@@ -123,7 +123,9 @@ LLM-backed enrichment in the orchestrator; keys stay in env vars only
 `security` and `qa` specialists each call their role config over the
 bounded `pr_context`; LLM findings appear prefixed `LLM:` in the verdict
 and any failure degrades to an info note — it never rejects a PR by
-itself.
+itself. The synthesizer also calls the `harness` role (the base
+`QG_LLM_*` config — e.g. local Ollama) for a short executive summary of
+the verdict, recorded in `llm_call_metrics` like every other role.
 
 | `QG_LLM_PROVIDER` | Key env (fallback) | Default base URL |
 |---|---|---|

@@ -213,6 +213,83 @@ def _llm_enrich(
 
 
 # --------------------------------------------------------------------------- #
+# Harness (orchestrator) summarization
+# --------------------------------------------------------------------------- #
+
+_HARNESS_PROMPT = """You are the quality-gate orchestrator. Write a short
+executive summary of this PR review verdict in Spanish: overall risk,
+the main themes behind blockers/warnings, and the recommended action.
+Maximum 3 sentences, plain text, no markdown."""
+
+_HARNESS_MAX_FINDINGS = 8
+
+
+def _harness_user_message(
+    state: dict[str, Any], findings: list[dict[str, Any]], approve: bool
+) -> str:
+    """Bounded digest of the verdict for the harness summary prompt."""
+    rank = {"blocker": 0, "warning": 1, "info": 2}
+    top = sorted(findings, key=lambda f: rank.get(f["severity"], 3))
+    top = top[:_HARNESS_MAX_FINDINGS]
+    counts = {s: sum(1 for f in findings if f["severity"] == s)
+              for s in rank}
+    lines = [
+        f"PR: {state.get('pr_title', '(sin título)')}",
+        f"Verdict: {'approved' if approve else 'changes required'}",
+        f"Findings: {counts['blocker']} blocker, {counts['warning']} "
+        f"warning, {counts['info']} info",
+        "",
+        "Top findings:",
+    ]
+    lines += [
+        f"- [{f['severity']}][{f['agent']}] {f['title']}" for f in top
+    ]
+    return "\n".join(lines)
+
+
+def harness_summarize(
+    state: dict[str, Any], findings: list[dict[str, Any]], approve: bool
+) -> dict[str, Any]:
+    """Optional orchestrator-role (harness) summary of the verdict.
+
+    Returns ``{"text", "llm_calls", "active_pgids"}``. Unlike specialist
+    enrichment this never emits findings — a failed call only records an
+    ``error`` row so the attempt is still visible in metrics.
+    """
+    out: dict[str, Any] = {"text": "", "llm_calls": [], "active_pgids": []}
+    try:
+        cfg = llm.LLMConfig.for_role("harness")
+    except llm.LLMConfigError:
+        return out
+    if not cfg.enabled:
+        return out
+
+    try:
+        meta = cfg.complete_with_meta(
+            _HARNESS_PROMPT,
+            _harness_user_message(state, findings, approve),
+            cwd=state.get("repo_path"),
+        )
+    except Exception as exc:  # noqa: BLE001 - harness failure is cosmetic
+        logger.warning("harness LLM call failed: %s", exc)
+        out["llm_calls"] = [
+            _call_record(cfg, "synthesizer", "error", error=str(exc))
+        ]
+        return out
+
+    if meta.get("pgid"):
+        out["active_pgids"] = [meta["pgid"]]
+    text = (meta.get("text") or "").strip()
+    status = "truncated" if meta.get("truncated") else "ok"
+    if not text:
+        status = "unparseable"
+    else:
+        out["text"] = text
+    out["llm_calls"] = [_call_record(cfg, "synthesizer", status, meta)]
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Router helpers
 # --------------------------------------------------------------------------- #
 

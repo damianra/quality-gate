@@ -115,15 +115,30 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
         f"{sum(1 for f in findings if f['severity'] == 'warning')} warning(s), "
         f"{sum(1 for f in findings if f['severity'] == 'info')} info."
     )
-    report = metrics.summarize(state)
+    # Optional orchestrator (harness role) summary — recorded in
+    # llm_calls BEFORE the report is built so it persists in metrics.
+    harness = agents.harness_summarize(state, findings, approve)
+    merged = {
+        **state,
+        "llm_calls": state.get("llm_calls", []) + harness["llm_calls"],
+    }
+    report = metrics.summarize(merged)
     verdict = {
         "approve": approve,
         "checks": checks,
         "summary": summary,
         "metrics": report,
     }
+    if harness["text"]:
+        verdict["llm_summary"] = harness["text"]
+        summary = f"{summary} {harness['text']}"
 
-    update: dict[str, Any] = {"verdict": verdict, "metrics": report}
+    update: dict[str, Any] = {
+        "verdict": verdict,
+        "metrics": report,
+        "llm_calls": harness["llm_calls"],
+        "active_pgids": harness["active_pgids"],
+    }
     if state.get("dry_run"):
         update["posted"] = {"action": "dry_run", "url": "", "head_sha": state.get("head_sha", "")[:7]}
     else:

@@ -284,3 +284,53 @@ def test_qa_specialist_enriches_normal_path(monkeypatch, tmp_path):
     assert "LLM: Edge path untested" in titles    # enrichment merged
     assert out["llm_calls"][0]["role"] == "qa"
     assert len(out["processes"]) == 1             # one spawn recorded
+
+
+# -- harness summarization ----------------------------------------------------- #
+
+def test_harness_summarize_returns_text_and_record(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": "El PR introduce riesgo bajo; corregir el token falso.",
+        "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+        "finish_reason": "stop", "truncated": False, "duration_s": 1.5,
+    })
+    findings = [{"agent": "security", "severity": "blocker",
+                 "title": "Secret", "detail": "x"}]
+    out = agents.harness_summarize(_state(), findings, approve=False)
+    assert "riesgo" in out["text"]
+    rec = out["llm_calls"][0]
+    assert rec["role"] == "harness" and rec["node"] == "synthesizer"
+    assert rec["status"] == "ok"
+    assert rec["usage"]["prompt_tokens"] == 50
+
+
+def test_harness_summarize_records_error(monkeypatch):
+    _fake_cfg(monkeypatch, exc=RuntimeError("ollama down"))
+    out = agents.harness_summarize(_state(), [], approve=True)
+    assert out["text"] == ""
+    assert out["llm_calls"][0]["status"] == "error"
+
+
+def test_harness_summarize_disabled_is_silent(monkeypatch):
+    monkeypatch.setattr(
+        agents.llm.LLMConfig, "for_role",
+        classmethod(lambda cls, role, env=None: agents.llm.LLMConfig()),
+    )
+    out = agents.harness_summarize(_state(), [], approve=True)
+    assert out == {"text": "", "llm_calls": [], "active_pgids": []}
+
+
+def test_synthesizer_records_harness_call(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": "Resumen del harness.",
+        "usage": {"prompt_tokens": 9, "completion_tokens": 5},
+        "finish_reason": "stop", "truncated": False, "duration_s": 0.5,
+    })
+    state = _state(findings=[
+        {"agent": "review", "severity": "info", "title": "ok", "detail": "d"},
+    ])
+    out = synthesizer_node(state)
+    assert out["verdict"]["llm_summary"] == "Resumen del harness."
+    assert out["metrics"]["llm"]["calls"] == 1
+    assert out["metrics"]["llm"]["detail"][0]["role"] == "harness"
+    assert out["llm_calls"][0]["node"] == "synthesizer"
