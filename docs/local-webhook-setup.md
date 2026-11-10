@@ -45,6 +45,25 @@ Note: compose's `postgres` service publishes 5432 — if a standalone
 postgres already owns the host port, start the stack without it and point
 `DATABASE_URL` at the existing instance instead.
 
+### Context window (`num_ctx`)
+
+Ollama defaults `num_ctx` to **4096** and silently truncates longer
+prompts (`WARN truncating input prompt` in its log) — specialist prompts
+with a full diff pass that easily. Raising it needs **no service/config
+edit**: create a derived model and point `QG_LLM_MODEL` at it:
+
+```bash
+printf 'FROM qwen3:8b\nPARAMETER num_ctx 8192\n' | \
+  ollama create qwen3:8b-8k -f -    # shares blobs, ~0 extra disk
+# .env: QG_LLM_MODEL=qwen3:8b-8k  (+ QG_LLM_MODEL_<ROLE>)
+```
+
+8192 fits comfortably in ~2 GB of free VRAM (qwen3:8b KV cache ≈1.2 GB at
+8k). For 16k+, also set `OLLAMA_KV_CACHE_TYPE=q8_0` on the service or
+accept partial RAM offload (slower). Per-request `options.num_ctx` is
+only honored by the native `/api/chat` — the `/v1` endpoint the
+orchestrator uses ignores it.
+
 ## 3. Publish the endpoint
 
 ### Option A — SSH tunnel, zero install (what this repo was tested with)

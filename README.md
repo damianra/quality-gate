@@ -185,6 +185,8 @@ docker compose up -d ingress nginx
 # LLM: the ingress defaults to a HOST ollama (http://localhost:11434,
 # reached via host.docker.internal) so the model gets full machine
 # resources — just `ollama serve` + `ollama pull qwen3:8b` on the host.
+# Prompts >4k hit ollama's num_ctx=4096 default — see the ctx-tuning
+# note in docs/local-webhook-setup.md for the one-command fix.
 # Only if the host has no ollama, fall back to the container:
 docker compose --profile llm up -d ollama
 docker compose exec ollama ollama pull qwen3:8b
