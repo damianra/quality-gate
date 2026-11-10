@@ -130,6 +130,33 @@ _HINT_RE = re.compile(
     r"[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|json|jsonc|md|yml|yaml|css|scss|py|toml)"
 )
 
+# Prompt-injection patterns (FR-O25): added lines that resemble
+# directives aimed at the reviewer LLMs rather than at a compiler or a
+# human. Matches are warnings, not blockers — legit docs may quote the
+# same phrases — but the attempt is always reported.
+_INJECTION_RES = [
+    re.compile(
+        r"\b(?:ignore|disregard|forget|override|bypass)\b"
+        r"[^.\n]{0,60}\b(?:previous|prior|above|earlier|preceding|all|every|these|those)\b"
+        r"[^.\n]{0,60}\b(?:instructions?|rules?|guidelines?|prompts?|guardrails?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:ignore|disregard|forget|override|bypass)\s+"
+        r"(?:all|any|the|your|these|those|previous|prior)\s+"
+        r"(?:instructions?|rules?|guidelines?|prompts?|guardrails?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:you are now|from now on you|your new (?:task|instructions|goal|objective))\b", re.IGNORECASE),
+    re.compile(r"\bnew\s+(?:system\s+)?instructions?\s*[:.]", re.IGNORECASE),
+    # Chat-template role markers — no legitimate diff should ship these.
+    re.compile(r"<\|(?:im_start|im_end|endoftext)\|>|\[/?INST\]|<</?SYS>>"),
+    # Verdict-forging: a standalone `VERDICT: approve` line mimics the
+    # reviewer output contract; `VERDICT: approve|reject` doc samples
+    # with trailing text do not match (EOL anchor).
+    re.compile(r"\bverdict\s*:\s*(?:approved?|changes\s+required)\s*$", re.IGNORECASE),
+]
+
 
 def _is_sensitive(path: str) -> bool:
     base = path.rsplit("/", 1)[-1]
@@ -209,6 +236,14 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
         for f, l in added
         if _SECRET_RE.search(l)
     ]
+    # FR-O25: prompt-injection attempts — added lines carrying LLM
+    # directives or chat-template markers. Deterministic so the attempt
+    # is reported even if a reviewer model obeys it.
+    prompt_injection = [
+        {"file": f, "line": l.strip()}
+        for f, l in added
+        if any(rx.search(l) for rx in _INJECTION_RES)
+    ][:20]
     config_churn = [f for f in files if _is_sensitive(f)]
 
     # commented_blocks: runs of >= COMMENTED_BLOCK_MIN added comment-only
@@ -267,6 +302,7 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
         "todos_added": todos_added,
         "commented_blocks": commented_blocks,
         "secret_candidates": secret_candidates,
+        "prompt_injection": prompt_injection,
         "files_outside_hint": files_outside_hint,
         "scope_hints": hints,
     }
