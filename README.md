@@ -170,7 +170,8 @@ on OpenRouter `:free` models (see `.env.example`).
 
 Prompt-injection hardening (FR-O25) is always on: `analyze_diff` flags
 added lines resembling LLM directives or chat-template role markers as
-`prompt_injection` warnings, every evidence block sent to the models is
+`prompt_injection` findings (warning; info in test/docs/pattern-
+definition contexts), every evidence block sent to the models is
 wrapped in explicit untrusted-data sentinels, and LLM findings can only
 reference files actually changed in the PR.
 

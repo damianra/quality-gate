@@ -369,7 +369,12 @@ duration lands in `node_durations`.
     standalone `VERDICT: approve`). SecurityAgent maps each hit to a
     **warning** finding so the attempt is reported even if the model
     is fooled; the signal also joins `choose_agents`'s security
-    trigger so the specialist always runs when it fires.
+    trigger so the specialist always runs when it fires. Hits in
+    benign contexts downgrade to **info**: test/fixture paths
+    (`_TEST_PATH_RE`), doc paths (`.md`, `docs/` — specs and READMEs
+    legitimately name the markers), and lines that define a
+    regex/pattern (`re.compile(`, `RegExp(` — detectors cite their
+    own syntax, so the signal self-matches otherwise).
   - *Isolation:* `_llm_user_message` wraps every evidence block in
     explicit `<<BEGIN UNTRUSTED PR DATA>>`/`<<END UNTRUSTED PR DATA>>`
     sentinels (occurrences of the sentinel inside evidence are
@@ -588,6 +593,7 @@ volatile during early history edits; commits are identified by subject):
 | 64 | `docs`: FR-O25 prompt-injection hardening in SPEC + READMEs |
 | 65 | `feat(mcp-server)`: `prompt_injection` signal in `analyze_diff` |
 | 66 | `feat(orchestrator)`: untrusted-data fencing + scoped finding files |
+| 67 | `fix(orchestrator)`: benign-context severity policy for `prompt_injection` |
 
 ## 11. Extension points (SDD backlog)
 
