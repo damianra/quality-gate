@@ -238,7 +238,9 @@ duration lands in `node_durations`.
   Wired: `review`, `security`, `qa` — the qa prompt targets
   validation gaps (missing tests, unexercised edge cases), orthogonal
   to its deterministic process checks. Calls run concurrently inside the
-  existing parallel fan-out. On provider error, `truncated=True`,
+  existing parallel fan-out. Reasoning-model artifacts
+  (`<think>…</think>` blocks, open or closed) are stripped BEFORE JSON
+  extraction in `_llm_enrich`. On provider error, `truncated=True`,
   unparseable output, or missing credentials the node MUST degrade to
   deterministic findings with an "LLM enrichment …" info note — LLM
   failure alone never rejects a PR.
@@ -495,6 +497,8 @@ volatile during early history edits; commits are identified by subject):
 | 47 | `docs`: FR-M7 reply semantics + token default in SPEC |
 | 48 | `fix(mcp-server)`: secret_candidates file-aware + test-path downgrade |
 | 49 | `docs`: FR-O4 test-file severity + signals schema in SPEC |
+| 50 | `fix(orchestrator)`: strip think tags in _llm_enrich (all roles) |
+| 51 | `docs`: FR-O16 reasoning-strip in SPEC |
 
 ## 11. Extension points (SDD backlog)
 
