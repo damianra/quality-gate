@@ -14,7 +14,7 @@ deterministic development tools for autonomous PR review.
 - **`analyze_pr_signals(repo_path, pr_number)`** — deterministic vibecoding
   scanner: `whitespace_ratio`, `large_diff`, `config_churn`,
   `new_dependencies`, `debug_leftovers`, `todos_added`, `commented_blocks`,
-  `secret_candidates`, `files_outside_hint`.
+  `secret_candidates`, `prompt_injection`, `files_outside_hint`.
 - **`search_code(repo_path, query, limit)`** — ripgrep over the checkout.
 - **`spawn_process(repo_path, command, args, timeout)`** — runs a command in
   a **new process group** (`start_new_session=True`) and returns its `pgid`.
