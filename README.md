@@ -48,12 +48,27 @@ podman compose up -d            # or: docker compose up -d
 podman compose run --rm orchestrator
 ```
 
-Dry-run locally without the stack (no comment posted, in-memory checkpointer):
+## Local test
+
+Fastest end-to-end check — runs the full graph against a **local
+checkout** of the PR head, posts nothing to GitHub (`--dry-run`) and
+uses the in-memory checkpointer (no Postgres needed):
 
 ```bash
-REPO_PATH=/path/to/checkout PR_NUMBER=123 GITHUB_TOKEN=ghp_... \
-  uv run --package pr-review-orchestrator pr-review --dry-run
+export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write
+export REPO_PATH=/path/to/checkout    # repo checked out at the PR branch
+export PR_NUMBER=123
+uv run --package pr-review-orchestrator pr-review --dry-run
 ```
+
+Output is a JSON verdict on stdout — `approve`, `summary`, `checks`,
+`cleanup_report` and the `metrics` block (durations, per-model tokens,
+telemetry). Exit code: `0` approved, `1` changes required. Without
+`--dry-run` it posts/updates the real verdict comment — point
+`REPO_PATH` at a throwaway repo when testing that path.
+
+To exercise the **webhook** path instead, bring up the ingress + a
+tunnel (next section).
 
 ## Registering the MCP in an IDE (manual debugging)
 
@@ -176,12 +191,29 @@ docker compose exec ollama ollama pull qwen3:8b
 QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
 ```
 
-Then register `http://<host>:8089/github/webhook` in the repo
+For a **local webhook test** (no compose, no public IP) bring the
+ingress up on the host and publish it through a tunnel:
+
+```bash
+set -a && source .env && set +a       # GITHUB_TOKEN, GITHUB_WEBHOOK_SECRET,
+                                      # QG_ALLOWED_REPOS, QG_INGRESS_PORT=8089
+uv run qg-ingress                     # http://127.0.0.1:8089
+curl http://127.0.0.1:8089/healthz    # -> {"status":"ok"}
+
+# zero-install SSH tunnel -> https://<id>.lhr.life (valid TLS cert)
+ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
+    -R 80:localhost:8089 nokey@localhost.run
+# alternatives: cloudflared tunnel --url http://localhost:8089
+#             ngrok http 8089
+```
+
+Then register `https://<id>.lhr.life/github/webhook` in the repo
 (Settings → Webhooks): content type `application/json`, secret =
-`GITHUB_WEBHOOK_SECRET`, events: Pull requests. For local testing the
-endpoint can be published through a tunnel instead — see
-[docs/local-webhook-setup.md](docs/local-webhook-setup.md) for the
-full bring-up, exposure options, webhook settings and teardown.
+`GITHUB_WEBHOOK_SECRET`, events: Pull requests. Verify with
+`curl https://<id>.lhr.life/healthz` and check GitHub's *Recent
+deliveries* for `202` (accepted) / `401` (bad signature) / `403` (repo
+not allowed). See [docs/local-webhook-setup.md](docs/local-webhook-setup.md)
+for the full bring-up, all exposure options, caveats and teardown.
 
 Public-exposure controls (FR-O19..O22, INV-6): nginx is the only public
 surface (10 r/s per IP, 1 MB body cap, only the webhook path proxied);
