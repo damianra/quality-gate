@@ -233,6 +233,14 @@ duration lands in `node_durations`.
   unparseable output, or missing credentials the node MUST degrade to
   deterministic findings with an "LLM enrichment …" info note — LLM
   failure alone never rejects a PR.
+- **FR-O16a Harness summarization** — the synthesizer additionally
+  calls the `harness` role (the base `QG_LLM_*` config, e.g. local
+  Ollama) with a bounded verdict digest (counts + top finding titles)
+  and attaches its Spanish executive summary to `verdict.llm_summary`
+  and the posted comment. The call is recorded in `llm_calls` under
+  node `synthesizer` BEFORE `metrics.summarize` builds the report, so
+  it persists in `llm_call_metrics`; a failed call stores an `error`
+  row, never a finding.
 - **FR-O17 CLI-backed provider (`devin-cli`)** — runs a local agent CLI
   as a tracked subprocess instead of an HTTP API:
   `devin --print --permission-mode auto --respect-workspace-trust false
@@ -467,17 +475,19 @@ volatile during early history edits; commits are identified by subject):
 | 38 | `feat(orchestrator)`: wire qa specialist to role LLM |
 | 39 | `docs`: FR-O16 all-specialists wired in SPEC + READMEs |
 | 40 | `fix(orchestrator)`: qa normal-path enrich unreachable (dead return) |
+| 41 | `feat(orchestrator)`: harness-role verdict summary (FR-O16a) |
+| 42 | `docs`: FR-O16a harness summarization in SPEC + READMEs |
 
 ## 11. Extension points (SDD backlog)
 
 Planned hooks already shaped by the codebase — spec them here before
 implementing:
 
-- **LLM-enriched specialists** — wired for `review`/`security`/`qa`
-  (FR-O16): role-scoped config (FR-O15), bounded `pr_context` payload,
-  `llm_calls` recording, degrade-to-info on failure. Remaining: a
-  harness summarization step if payload size ever beats the scope
-  budget.
+- **LLM-enriched specialists + harness** — wired for
+  `review`/`security`/`qa` (FR-O16) and the synthesizer's harness
+  summary (FR-O16a): role-scoped config (FR-O15), bounded context
+  payloads, `llm_calls` recording, degrade-on-failure. Remaining:
+  deeper harness duties (routing hints, retry policy) if needed.
 - **Sub-agent delegation** — `/pr-review` workflow delegates to a
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
