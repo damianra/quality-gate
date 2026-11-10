@@ -170,6 +170,7 @@ class LLMConfig:
     temperature: float = 0.0
     timeout: float = _DEFAULT_TIMEOUT
     max_tokens: int = 20000
+    json_mode: bool = False
     role: str = ""
 
     @classmethod
@@ -216,6 +217,8 @@ class LLMConfig:
             temperature=float(env.get("QG_LLM_TEMPERATURE", "0.0")),
             timeout=float(env.get("QG_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT))),
             max_tokens=int(env.get("QG_LLM_MAX_TOKENS", "20000")),
+            json_mode=env.get("QG_LLM_JSON_MODE", "").strip().lower()
+            in {"1", "true", "yes", "on"},
         )
 
     @classmethod
@@ -270,6 +273,10 @@ class LLMConfig:
                 {"role": "user", "content": user},
             ],
         }
+        if self.json_mode:
+            # Structured output: reasoning/local models (e.g. qwen3)
+            # otherwise ignore the JSON contract and emit prose.
+            payload["response_format"] = {"type": "json_object"}
         return f"{self.base_url}/chat/completions", headers, payload
 
     def _anthropic_request(

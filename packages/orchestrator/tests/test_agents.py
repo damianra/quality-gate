@@ -283,6 +283,25 @@ def test_enrich_parses_findings_after_think_block(monkeypatch):
     assert out["llm_calls"][0]["status"] == "ok"
 
 
+def test_llm_findings_parses_wrapper_and_single_dict():
+    """json_object mode can emit {findings:[...]} or a bare finding dict."""
+    wrapped = '{"findings": [{"severity": "warning", "title": "A", "file": "x.ts"}]}'
+    found = agents._llm_findings("security", wrapped)
+    assert found[0]["title"] == "LLM: A" and found[0]["severity"] == "warning"
+
+    single = '{"severity": "blocker", "title": "B", "detail": "d"}'
+    found = agents._llm_findings("security", single)
+    assert len(found) == 1 and found[0]["title"] == "LLM: B"
+
+    # regression: prose with an embedded array still parses
+    prose = 'Analysis done. Result: [{"severity": "info", "title": "C"}] — see above'
+    found = agents._llm_findings("security", prose)
+    assert len(found) == 1 and found[0]["title"] == "LLM: C"
+
+    # dict without findings/list values -> empty
+    assert agents._llm_findings("security", '{"result": 42}') == []
+
+
 def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "warning", "title": "Untested edge case",'

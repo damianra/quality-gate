@@ -217,6 +217,33 @@ def test_for_role_empty_override_inherits_base() -> None:
     assert qa.model == "qwen3:8b"
 
 
+def test_json_mode_role_override() -> None:
+    env = {
+        "QG_LLM_PROVIDER": "ollama",
+        "QG_LLM_MODEL": "qwen3:8b",
+        "QG_LLM_JSON_MODE_SECURITY": "1",
+    }
+    security = LLMConfig.for_role("security", env)
+    assert security.json_mode is True
+    # base/other roles are unaffected
+    assert LLMConfig.for_role("qa", env).json_mode is False
+
+
+def test_openai_request_json_mode_adds_response_format() -> None:
+    cfg = LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "ollama", "QG_LLM_MODEL": "m",
+         "QG_LLM_JSON_MODE": "true"}
+    )
+    _, _, payload = cfg._openai_request("sys", "user")
+    assert payload["response_format"] == {"type": "json_object"}
+    # disabled -> key absent
+    cfg2 = LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "ollama", "QG_LLM_MODEL": "m"}
+    )
+    _, _, payload2 = cfg2._openai_request("sys", "user")
+    assert "response_format" not in payload2
+
+
 def test_for_role_unknown_role_rejected() -> None:
     with pytest.raises(LLMConfigError, match="unknown role"):
         LLMConfig.for_role("bogus", {})
