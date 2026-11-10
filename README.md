@@ -176,12 +176,29 @@ docker compose exec ollama ollama pull qwen3:8b
 QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
 ```
 
-Then register `http://<host>:8089/github/webhook` in the repo
+For a **local webhook test** (no compose, no public IP) bring the
+ingress up on the host and publish it through a tunnel:
+
+```bash
+set -a && source .env && set +a       # GITHUB_TOKEN, GITHUB_WEBHOOK_SECRET,
+                                      # QG_ALLOWED_REPOS, QG_INGRESS_PORT=8089
+uv run qg-ingress                     # http://127.0.0.1:8089
+curl http://127.0.0.1:8089/healthz    # -> {"status":"ok"}
+
+# zero-install SSH tunnel -> https://<id>.lhr.life (valid TLS cert)
+ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
+    -R 80:localhost:8089 nokey@localhost.run
+# alternatives: cloudflared tunnel --url http://localhost:8089
+#             ngrok http 8089
+```
+
+Then register `https://<id>.lhr.life/github/webhook` in the repo
 (Settings → Webhooks): content type `application/json`, secret =
-`GITHUB_WEBHOOK_SECRET`, events: Pull requests. For local testing the
-endpoint can be published through a tunnel instead — see
-[docs/local-webhook-setup.md](docs/local-webhook-setup.md) for the
-full bring-up, exposure options, webhook settings and teardown.
+`GITHUB_WEBHOOK_SECRET`, events: Pull requests. Verify with
+`curl https://<id>.lhr.life/healthz` and check GitHub's *Recent
+deliveries* for `202` (accepted) / `401` (bad signature) / `403` (repo
+not allowed). See [docs/local-webhook-setup.md](docs/local-webhook-setup.md)
+for the full bring-up, all exposure options, caveats and teardown.
 
 Public-exposure controls (FR-O19..O22, INV-6): nginx is the only public
 surface (10 r/s per IP, 1 MB body cap, only the webhook path proxied);
