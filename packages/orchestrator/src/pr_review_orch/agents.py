@@ -131,7 +131,9 @@ def _llm_findings(agent: str, text: str) -> list[dict[str, Any]]:
                 (v for v in data.values() if isinstance(v, list)), []
             )
     out: list[dict[str, Any]] = []
-    for item in (data if isinstance(data, list) else [])[:_LLM_MAX_FINDINGS]:
+    for item in (data if isinstance(data, list) else []):
+        if len(out) >= _LLM_MAX_FINDINGS:
+            break
         if not isinstance(item, dict):
             continue
         # A finding must carry content. Foreign schemas (e.g. the model
