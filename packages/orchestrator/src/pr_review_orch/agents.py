@@ -669,9 +669,13 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
         # e.g. npm audit against a dir without a lockfile returns
         # {"error": {...}} — a failure, NOT a clean bill.
         err = data["error"]
+        detail = (
+            err.get("summary") or err.get("detail") or str(err)
+            if isinstance(err, dict) else str(err))
         out["findings"].append(_finding(
             "security", "info", "Dependency audit failed",
-            f"`{' '.join(cmd)}`: {err.get('summary') or err.get('detail') or err}"))
+            f"`{' '.join(cmd)}`: {detail}"))
+        return out
 
     vulns = (
         _parse_osv(data) if cmd[0] == "osv-scanner"

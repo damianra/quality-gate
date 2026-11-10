@@ -656,3 +656,27 @@ def test_security_specialist_registers_audit_process(monkeypatch):
                for f in out["findings"])
     assert out["active_pgids"] == [4242]
     assert out["processes"][0]["agent"] == "security"
+
+
+def test_audit_error_payload_is_not_clean(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else "/bin/npm")
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        _fake_spawn('{"error": {"summary": "requires lockfile"}}'))
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    titles = [f["title"] for f in out["findings"]]
+    assert titles == ["Dependency audit failed"]
+    assert "requires lockfile" in out["findings"][0]["detail"]
+
+
+def test_audit_string_error_payload_does_not_crash(monkeypatch):
+    monkeypatch.setattr(
+        agents.shutil, "which", lambda x: "/bin/osv-scanner"
+        if x == "osv-scanner" else None)
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        _fake_spawn('{"error": "boom"}'))
+    out = agents._dependency_audit(Path("/nonexistent"), ["package.json"])
+    assert out["findings"][0]["title"] == "Dependency audit failed"
