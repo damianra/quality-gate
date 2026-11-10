@@ -178,10 +178,11 @@ Ollama local puede manejar el harness mientras los especialistas usan
 modelos `:free` de OpenRouter (ver `.env.example`).
 
 El endurecimiento contra prompt-injection (FR-O25) está siempre activo:
-`analyze_diff` marca como warnings `prompt_injection` las líneas
+`analyze_diff` marca como findings `prompt_injection` las líneas
 agregadas que parecen directivas a un LLM o marcadores de rol de
-chat-template, todo bloque de evidencia enviado a los modelos se
-envuelve en centinelas explícitos de datos no confiables, y los
+chat-template (severidad warning; info en contextos de tests/docs/
+definición de patrones), todo bloque de evidencia enviado a los modelos
+se envuelve en centinelas explícitos de datos no confiables, y los
 findings del LLM solo pueden referenciar archivos realmente modificados
 en el PR.
 
