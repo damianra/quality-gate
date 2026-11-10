@@ -134,13 +134,26 @@ def _llm_findings(agent: str, text: str) -> list[dict[str, Any]]:
     for item in (data if isinstance(data, list) else [])[:_LLM_MAX_FINDINGS]:
         if not isinstance(item, dict):
             continue
+        # A finding must carry content. Foreign schemas (e.g. the model
+        # echoing {"code_changes": [{"file": ..., "changes": [...}]} for
+        # a code-task PR) reach here via the "first list value" wrapper
+        # fallback and would render as empty "LLM finding" noise —
+        # skipping them lets the caller degrade to "unparseable" instead.
+        title = str(
+            item.get("title") or item.get("summary") or item.get("issue") or ""
+        ).strip()
+        detail = str(
+            item.get("detail") or item.get("description")
+            or item.get("message") or item.get("finding") or ""
+        ).strip()
+        if not title and not detail:
+            continue
         sev = str(item.get("severity", "info")).lower()
-        title = str(item.get("title") or "LLM finding").strip() or "LLM finding"
         out.append(_finding(
             agent,
             sev if sev in _LLM_SEVERITIES else "info",
-            f"LLM: {title[:80]}",
-            str(item.get("detail", ""))[:500],
+            f"LLM: {(title or detail)[:80]}",
+            detail[:500],
             file=item["file"] if isinstance(item.get("file"), str) else None,
         ))
     return out
