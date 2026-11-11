@@ -79,8 +79,9 @@ data files never trigger QA on their own.
   |---|---|
   | `package.json` | existing `"name": "version"` parse (unchanged) |
   | `requirements*.txt` | added `name[==|>=|~=|<=|>]ver` lines |
-  | `pyproject.toml` | added quoted entries inside `[project]`
-  `dependencies`/`[project.optional-dependencies]` arrays |
+  | `pyproject.toml` | added quoted PEP-508 entries carrying a version
+  specifier or marker (`"pkg>=1"`, `"pkg @ …"`, `"pkg; …"`) — bare
+  quoted strings could be keyword/classifier arrays and don't count |
   | `go.mod` | added `require <module> <version>` lines |
 
   SecurityAgent's "New dependency" finding reports the real manifest
@@ -91,9 +92,11 @@ data files never trigger QA on their own.
 - **FR-L5 Language-agnostic scope hints.** `_HINT_RE` is replaced by a
   generic path-token matcher: any `[\w./-]+\.[A-Za-z0-9]{1,6}` token
   in the PR body counts as a file hint (previously a fixed extension
-  list), and a token ending in `/` or resolving to an existing
-  directory counts as a directory hint covering every file beneath
-  it. Doc paths remain always in-scope (`_DOC_PATH_RE` unchanged).
+  list), and any slash-containing path token counts as a directory
+  hint covering every file beneath it. Letter lookaheads — one in
+  the token, one inside the suffix — keep version tokens
+  (`1.2.3`, `v1.2.3`) out. Doc paths remain always in-scope
+  (`_DOC_PATH_RE` unchanged).
   Amends FR-O3's `files_outside_hint` finding and §6.2.
 
 - **FR-L6 Multi-language dependent discovery.** `find_dependents`
@@ -104,6 +107,11 @@ data files never trigger QA on their own.
   unchanged — it already handles `/` and `.` separators. Scan caps
   (`_MAX_SCAN_FILES`, `QG_SCOPE_MAX_FILES`, `_SKIP_DIRS`) are
   unchanged. Amends FR-O12.
+
+  Known heuristic limits (accepted): Rust grouped imports
+  `use a::{b, c}`, PHP `use function`/`use const`, and Go blank/dot
+  imports (`_ "p"`, `. "p"`) are not matched; Go dependents resolve
+  at package-dir granularity, not per file.
 
 ## 3. Contracts
 

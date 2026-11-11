@@ -60,8 +60,80 @@ def test_new_dependencies_detected_in_package_json():
         }
     )
     s = analyze_diff(d)
-    assert "left-pad" in s["new_dependencies"]
-    assert "my-app" not in s["new_dependencies"]  # no version constraint
+    names = {dep["name"] for dep in s["new_dependencies"]}
+    assert "left-pad" in names
+    assert "my-app" not in names  # no version constraint
+    assert s["new_dependencies"][0]["manifest"] == "package.json"
+
+
+def test_new_dependencies_multimanifest():
+    """FR-L4: requirements/pyproject/go.mod entries are also detected."""
+    d = _diff(
+        {
+            "requirements.txt": (
+                [],
+                ["requests==2.31.0", "# a comment", "-r base.txt"],
+            ),
+            "pyproject.toml": (
+                [],
+                ['    "flask>=3.0",', '    "dep>1",', '    "bareword"',
+                 'name = "proj"'],
+            ),
+            "go.mod": (
+                [],
+                ["require github.com/gin-gonic/gin v1.9.1",
+                 "\tgolang.org/x/net v0.10.0 // indirect"],
+            ),
+        }
+    )
+    s = analyze_diff(d)
+    got = {(dep["name"], dep["manifest"]) for dep in s["new_dependencies"]}
+    assert ("requests", "requirements.txt") in got
+    assert ("flask", "pyproject.toml") in got
+    assert ("dep", "pyproject.toml") in got         # single-char operator
+    assert "bareword" not in {n for n, _ in got}   # no version specifier
+    assert "proj" not in {n for n, _ in got}        # not a quoted entry
+    assert ("github.com/gin-gonic/gin", "go.mod") in got
+    assert ("golang.org/x/net", "go.mod") in got
+
+
+def test_debug_leftovers_multilanguage():
+    """FR-L3: python/ruby/rust debug statements flag; print-like don't."""
+    d = _diff(
+        {
+            "app.py": ([], ["breakpoint()", "import pdb; pdb.set_trace()",
+                            "print(1)"]),
+            "app.rb": ([], ["binding.pry", "byebug", 'puts "x"']),
+            "app.rs": ([], ["dbg!(value);", 'println!("hi");']),
+        }
+    )
+    s = analyze_diff(d)
+    leftovers = s["debug_leftovers"]
+    assert "breakpoint()" in leftovers
+    assert "import pdb; pdb.set_trace()" in leftovers
+    assert "binding.pry" in leftovers
+    assert "byebug" in leftovers
+    assert "dbg!(value);" in leftovers
+    assert len(leftovers) == 5  # print/puts/println! are not flagged
+
+
+def test_hint_paths_generic_exts_and_dirs():
+    """FR-L5: hints are any path token — arbitrary exts + dir tokens."""
+    d = _diff(
+        {
+            "internal/api/handler.go": (["a"], ["b"]),
+            "src/foo.rs": (["x"], ["y"]),
+            "other/thing.go": (["u"], ["v"]),
+        }
+    )
+    body = "Scope: internal/api/ handlers, plus src/foo.rs. Bumps v1.2.3."
+    s = analyze_diff(d, pr_body=body)
+    assert "internal/api/handler.go" not in s["files_outside_hint"]
+    assert "src/foo.rs" not in s["files_outside_hint"]
+    assert "other/thing.go" in s["files_outside_hint"]
+    # digit-suffixed version tokens are not hints
+    assert "v1.2.3" not in s["scope_hints"]
+    assert not any(h.startswith("v1.2") for h in s["scope_hints"])
 
 
 def test_debug_leftovers_console_and_debugger():

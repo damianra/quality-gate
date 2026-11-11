@@ -19,18 +19,33 @@ from typing import Any
 
 from . import config
 
-# Quoted specifiers: `from "s"` (ES import/export), `import "s"`,
-# `require("s")`, dynamic `import("s")`.
+# Quoted specifiers (FR-L6): `from "s"`/`import "s"`/`import("s")` (JS,
+# Go single-imports), `require("s")`/`require 's'`/`require_relative`
+# (JS/Ruby/PHP), `include 's'`/`require_once` (PHP).
 _QUOTED_SPEC_RE = re.compile(
-    r"""(?:from\s+|import\s+|require\(\s*|import\(\s*)"""
-    r"""['"](?P<spec>[^'"]+)['"]"""
+    r"""(?:from\s+|import\s+|import\(\s*|require\w*\s*\(?\s*|"""
+    r"""include\w*\s*\(?\s*)['"](?P<spec>[^'"]+)['"]"""
 )
-# Unquoted Python specs: `import pkg.mod`, `from pkg.mod import x`.
+# Unquoted Python/Java specs: `import pkg.mod`, `from pkg.mod import x`.
 _PY_IMPORT_RE = re.compile(
     r"^\s*(?:from\s+(?P<mod>[\w.]+)\s+import|import\s+(?P<mod2>[\w.]+))",
     re.MULTILINE,
 )
-_SCAN_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py"}
+# Go: quoted entries inside `import ( ... )` blocks — module paths carry
+# at least one slash (stdlib names are never repo dependents anyway).
+_GO_IMPORT_RE = re.compile(
+    r'^\s*"([\w.-]+(?:/[\w./-]+)+)"', re.MULTILINE)
+# Rust: `use crate::mod::item` / `mod name;` — `::` normalized to `/`.
+_RUST_USE_RE = re.compile(
+    r"^\s*(?:pub\s+)?(?:use|mod)\s+([\w:]+)\s*;", re.MULTILINE)
+# PHP: `use Vendor\Pkg` — backslashes normalized to `/`.
+_PHP_USE_RE = re.compile(r"^\s*use\s+([\w\\]+)", re.MULTILINE)
+# C#: `using Foo.Bar` (`using static` skipped).
+_CS_USING_RE = re.compile(r"^\s*using\s+(?!static\b)([\w.]+)", re.MULTILINE)
+_SCAN_EXTS = {
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py",
+    ".go", ".rs", ".java", ".rb", ".php", ".cs",
+}
 _SKIP_DIRS = {
     ".git", "node_modules", "dist", "build", "__pycache__",
     ".venv", "coverage", ".next", ".expo",
@@ -45,6 +60,8 @@ def _module_stems(path: str) -> set[str]:
     if p.stem == "index":  # `import "pkg/dir"` resolves to dir/index.*
         stems.add(p.parent.name)
         stems.add(str(p.parent))
+    if p.suffix == ".go":  # Go imports target the package dir, not files
+        stems.add(p.parent.name)
     return {s.lstrip("./") for s in stems if s}
 
 
@@ -91,6 +108,21 @@ def find_dependents(repo_path: str, changed_files: list[str]) -> list[str]:
             for spec in m.groups()
             if spec
         ]
+        ext = path.suffix
+        if ext == ".go":
+            specs += [m.group(1) for m in _GO_IMPORT_RE.finditer(text)]
+        elif ext == ".rs":
+            specs += [
+                m.group(1).replace("::", "/")
+                for m in _RUST_USE_RE.finditer(text)
+            ]
+        elif ext == ".php":
+            specs += [
+                m.group(1).replace("\\", "/")
+                for m in _PHP_USE_RE.finditer(text)
+            ]
+        elif ext == ".cs":
+            specs += [m.group(1) for m in _CS_USING_RE.finditer(text)]
         if any(_imports_target(spec, targets) for spec in specs):
             dependents.append(rel)
     return dependents

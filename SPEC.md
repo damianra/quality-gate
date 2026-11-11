@@ -606,6 +606,7 @@ volatile during early history edits; commits are identified by subject):
 | 68 | `docs`: benign-context severity policy in FR-O25 + READMEs |
 | 69 | `docs`: language-agnostic scope + `docs/specs/multi-language-review.md` (FR-L1..L6) |
 | 70 | `feat(orchestrator)`: multi-language QA activation + pluggable validators (FR-L1/L2) |
+| 71 | `feat`: multi-language signals + dependent discovery (FR-L3..L6) |
 
 ## 11. Extension points (SDD backlog)
 

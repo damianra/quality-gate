@@ -103,9 +103,24 @@ _SECRET_RE = re.compile(
     r"(api_key|apikey|token|secret|password|passwd|private_key)\s*[:=]\s*['\"]",
     re.IGNORECASE,
 )
-_DEBUG_RE = re.compile(r"console\.(log|debug)\s*\(|\bdebugger\b")
+# FR-L3 debug leftovers across languages — unambiguous debugger
+# statements only; ordinary output calls (print, fmt.Println) are too
+# false-positive prone to flag.
+_DEBUG_RE = re.compile(
+    r"console\.(?:log|debug)\s*\(|\bdebugger\b"     # JS/TS
+    r"|\bbreakpoint\s*\(|pdb\.set_trace\b"           # Python
+    r"|\bbinding\.pry\b|\bbyebug\b"                  # Ruby
+    r"|\bdbg!\s*\("                                  # Rust
+)
 _TODO_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
+# FR-L4 dependency-line detectors, keyed by manifest basename.
 _DEP_LINE_RE = re.compile(r'"([@./\w-]+)"\s*:\s*"[~^<>=\d]')
+_REQ_LINE_RE = re.compile(
+    r"^\s*([A-Za-z0-9][\w.-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~]=?|;|@|$)")
+_PEP508_QUOTED_RE = re.compile(
+    r"^\s*[\"']([A-Za-z0-9][\w.-]*)(?:\[[^\]]*\])?\s*(?:[<>=!~]=?|@|;)")
+_GO_REQUIRE_RE = re.compile(
+    r"^\s*(?:require\s+)?\(?\s*([\w.-]+(?:/[\w.-]+)+)\s+v[\w.-]+")
 _COMMENT_PREFIXES = ("//", "#", "/*", "*", "*/", "<!--", "{/*")
 _COMMENT_LEAD_RE = re.compile(r"^\s*(?://+|#+|/\*+|\*+|<!--|\{/\*)\s*")
 _COMMENT_END_RE = re.compile(r"(?:\*/|-->)\s*$")
@@ -126,9 +141,17 @@ _DOC_PATH_RE = re.compile(
     r"security)(\.[^/]*)?$|\.md$|(^|/)docs?/",
     re.IGNORECASE,
 )
-_HINT_RE = re.compile(
-    r"[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|json|jsonc|md|yml|yaml|css|scss|py|toml)"
-)
+# FR-L5 scope hints: any path-like token counts, not a fixed extension
+# list — a file hint needs a dotted suffix containing a letter, a
+# directory hint needs a slash. Letter lookaheads keep version strings
+# ("1.2.3", "v1.2.3") out.
+_HINT_RES = [
+    # File hint: path token whose dotted suffix contains a letter —
+    # "1.2.3" and "v1.2.3" have digit-only suffixes and don't count.
+    re.compile(r"(?=[\w./-]*[A-Za-z_])[\w./-]+\.(?=[A-Za-z0-9]*[A-Za-z_])"
+               r"[A-Za-z0-9]{1,6}"),
+    re.compile(r"(?=[\w./-]*[A-Za-z_])[\w.-]+(?:/[\w.-]+)+"),
+]
 
 # Prompt-injection patterns (FR-O25): added lines that resemble
 # directives aimed at the reviewer LLMs rather than at a compiler or a
@@ -170,9 +193,33 @@ def _is_sensitive(path: str) -> bool:
 def _extract_hint_paths(pr_body: str) -> list[str]:
     """Pull file/dir mentions out of a PR body to approximate intended scope."""
     hints: set[str] = set()
-    for m in _HINT_RE.finditer(pr_body or ""):
-        hints.add(m.group(0).lstrip("./"))
+    for rx in _HINT_RES:
+        for m in rx.finditer(pr_body or ""):
+            hints.add(m.group(0).lstrip("./"))
     return sorted(hints)
+
+
+def _dep_name(basename: str, line: str) -> str | None:
+    """Dependency name an added line declares in a manifest (FR-L4)."""
+    if basename == "package.json":
+        m = _DEP_LINE_RE.search(line)
+        return m.group(1) if m else None
+    if basename.startswith("requirements") and basename.endswith(".txt"):
+        if line.lstrip().startswith(("#", "-")):
+            return None  # comment or -r/-e/--option line
+        m = _REQ_LINE_RE.match(line)
+        return m.group(1) if m else None
+    if basename == "pyproject.toml":
+        # Quoted PEP-508 entries carrying a version specifier or a
+        # direct/environment marker — bare quoted strings could be
+        # keyword/classifier arrays, so they are not enough.
+        m = _PEP508_QUOTED_RE.match(line)
+        return m.group(1) if m else None
+    if basename == "go.mod":
+        # `require mod v1.2.3` and bare block entries `mod v1.2.3`.
+        m = _GO_REQUIRE_RE.match(line)
+        return m.group(1) if m else None
+    return None
 
 
 def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
@@ -216,16 +263,17 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
     else:
         whitespace_ratio = 0.0
 
-    # new_dependencies: added "name": "version" lines inside package.json
-    new_deps = sorted(
-        {
-            m.group(1)
-            for f, line in added
-            if f.rsplit("/", 1)[-1] == "package.json"
-            for m in [_DEP_LINE_RE.search(line)]
-            if m
-        }
-    )
+    # FR-L4 new_dependencies: added dependency entries in any supported
+    # manifest -> {name, manifest} dicts.
+    dep_pairs = {
+        (name, f)
+        for f, line in added
+        for name in [_dep_name(f.rsplit("/", 1)[-1], line) or ""]
+        if name
+    }
+    new_deps = [
+        {"name": n, "manifest": f} for n, f in sorted(dep_pairs)
+    ]
 
     debug_leftovers = [l for l in added_lines if _DEBUG_RE.search(l)]
     todos_added = [l.strip() for l in added_lines if _TODO_RE.search(l)]
