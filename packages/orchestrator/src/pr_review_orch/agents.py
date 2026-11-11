@@ -23,27 +23,14 @@ from typing import Any
 from quality_gate_mcp import tools as mcp_tools
 
 from . import config, llm
+from .prompts import QA_PROMPT, REVIEW_PROMPT, SECURITY_PROMPT
 
 logger = logging.getLogger("pr-review-orch")
 
 # --------------------------------------------------------------------------- #
-# Prompts — REVIEW/SECURITY double as system prompts for the LLM
-# enrichment (FR-O16); all three feed _llm_enrich's system prompt.
+# Prompts — live in prompts.py as per-role playbooks (FR-C5); all three
+# double as system prompts for the LLM enrichment (FR-O16).
 # --------------------------------------------------------------------------- #
-
-REVIEW_PROMPT = """You are ReviewAgent. Evaluate the PR against the repo's
-AGENTS.md rules, detect vibecoding (whitespace noise, commented-out blocks,
-TODOs, oversized diffs) and verify scope fidelity (files changed vs. files
-claimed in the PR body). Report findings only — never modify code."""
-
-SECURITY_PROMPT = """You are SecurityAgent. Hunt for hardcoded secrets,
-suspicious new dependencies, and churn on sensitive configuration files
-(CI workflows, env files, build config). Any leaked credential is a blocker."""
-
-QA_PROMPT = """You are QAAgent. Analyze the diff for validation gaps:
-missing or broken tests, untested edge cases, assertions that no longer
-match the changed behavior, and error paths nobody exercises. Report
-findings only — never modify code."""
 
 # --------------------------------------------------------------------------- #
 # LLM enrichment (FR-O16)
@@ -88,31 +75,59 @@ _LLM_SEVERITIES = {"info", "warning", "blocker"}
 _LLM_MAX_FINDINGS = 10
 
 
-def _llm_user_message(state: dict[str, Any]) -> str:
+#: FR-C4 — signals relevant per role, on top of the shared core set.
+_CORE_SIGNAL_KEYS = (
+    "files_changed", "lines_changed", "whitespace_ratio", "large_diff",
+)
+_ROLE_SIGNAL_KEYS = {
+    "review": (
+        "todos_added", "debug_leftovers", "commented_blocks",
+        "files_outside_hint", "scope_hints",
+    ),
+    "security": (
+        "secret_candidates", "new_dependencies", "config_churn",
+        "prompt_injection",
+    ),
+    "qa": (
+        "todos_added", "debug_leftovers",
+    ),
+}
+
+
+def _llm_user_message(
+    state: dict[str, Any],
+    role: str = "review",
+    extra: dict[str, Any] | None = None,
+) -> str:
     """User message for specialist LLM calls: signals + bounded evidence.
 
-    FR-O23: besides the diff, ships the full contents of changed files
-    and the dependent names gathered by ``build_pr_context``. Every
-    evidence block has its own char cap (``QG_PROMPT_MAX_DIFF_CHARS``,
-    ``QG_PROMPT_MAX_FILES_CHARS``) so oversized PRs still fit the
-    deployed model context; truncated sections are flagged.
+    FR-O23/FR-C1..C4: a shared core (PR id/title, ``## PR body``,
+    deterministic signals, changed files, diff) plus role-tailored
+    sections — repo rules for ``review``, dependency-audit output for
+    ``security``, validator results for ``qa``. Changed-file contents
+    and dependent head excerpts ship to every role. Every evidence
+    block has its own char cap so oversized PRs still fit the deployed
+    model context; truncated sections are flagged.
     """
     ctx = state.get("pr_context") or {}
     signals = state.get("signals") or {}
-    signal_keys = (
-        "files_changed", "lines_changed", "whitespace_ratio", "large_diff",
-        "todos_added", "debug_leftovers", "secret_candidates",
-        "new_dependencies", "config_churn",
-    )
+    extra = extra or {}
+    signal_keys = _CORE_SIGNAL_KEYS + _ROLE_SIGNAL_KEYS.get(role, ())
 
     raw_diff = ctx.get("diff_text") or "(empty)"
     diff = raw_diff[: config.PROMPT_MAX_DIFF_CHARS]
     diff_cut = ctx.get("truncated") or len(diff) < len(raw_diff)
 
+    body = (state.get("pr_body") or "").strip() or "(empty)"
+    body = body[: config.PROMPT_MAX_BODY_CHARS]
+
     parts = [
         f"PR #{state.get('pr_number')}: {state.get('pr_title', '')}",
         f"base: {state.get('base_ref', '')} "
         f"head: {str(state.get('head_sha', ''))[:7]}",
+        "",
+        "## PR body",
+        body,
         "",
         "## Deterministic signals",
         json.dumps({k: signals[k] for k in signal_keys if signals.get(k)}),
@@ -124,6 +139,15 @@ def _llm_user_message(state: dict[str, Any]) -> str:
          if diff_cut else "## Diff"),
         diff,
     ]
+
+    if role == "review" and ctx.get("agents_doc"):
+        doc = ctx["agents_doc"][: config.PROMPT_MAX_AGENTS_CHARS]
+        parts += [
+            "",
+            ("## Repo rules (truncated to prompt budget)"
+             if len(ctx["agents_doc"]) > len(doc) else "## Repo rules"),
+            doc,
+        ]
 
     contents = ctx.get("file_contents") or {}
     if contents:
@@ -145,15 +169,31 @@ def _llm_user_message(state: dict[str, Any]) -> str:
                 f"(file contents truncated to prompt budget"
                 + (f"; {omitted} file(s) omitted)" if omitted else ")"))
 
+    heads = ctx.get("related_heads") or []
+    if heads:
+        parts += ["", "## Related file excerpts (dependents)"]
+        for h in heads:
+            parts += [f"### {h['path']}", "```", h["head"], "```"]
     related = ctx.get("related_files") or []
-    if related:
+    if len(related) > len(heads):
         parts += [
             "", "## Related files (dependents, not shown)",
-            "\n".join(related[:50]),
+            "\n".join(related[len(heads):][:50]),
         ]
 
-    body = _neutralize_sentinels("\n".join(parts))
-    return f"{_UNTRUSTED_OPEN}\n{body}\n{_UNTRUSTED_CLOSE}"
+    if role == "security" and extra.get("audit"):
+        parts += [
+            "", "## Dependency audit",
+            json.dumps(extra["audit"][:10], indent=1),
+        ]
+    if role == "qa" and extra.get("processes"):
+        parts += [
+            "", "## Validator results",
+            json.dumps(extra["processes"][:10], indent=1),
+        ]
+
+    body_msg = _neutralize_sentinels("\n".join(parts))
+    return f"{_UNTRUSTED_OPEN}\n{body_msg}\n{_UNTRUSTED_CLOSE}"
 
 
 def _llm_findings(
@@ -260,7 +300,10 @@ def _call_record(
 
 
 def _llm_enrich(
-    agent: str, system_prompt: str, state: dict[str, Any]
+    agent: str,
+    system_prompt: str,
+    state: dict[str, Any],
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Optional LLM pass for one specialist (FR-O16).
 
@@ -283,7 +326,7 @@ def _llm_enrich(
     try:
         meta = cfg.complete_with_meta(
             f"{system_prompt}\n\n{_LLM_OUTPUT_CONTRACT}",
-            _llm_user_message(state),
+            _llm_user_message(state, agent, extra),
             cwd=state.get("repo_path"),
         )
     except Exception as exc:  # noqa: BLE001 - LLM failure must not reject
@@ -829,7 +872,8 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
 
     # FR-O16: optional LLM pass with the security role config; degrades to
     # info notes on any failure — never removes deterministic findings.
-    enrich = _llm_enrich("security", SECURITY_PROMPT, state)
+    enrich = _llm_enrich("security", SECURITY_PROMPT, state,
+                      extra={"audit": audit["findings"]})
     findings += enrich["findings"]
     return {
         "findings": findings,
@@ -910,7 +954,8 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
             "ecosystems; structural checks skipped."))
         # FR-O16: the LLM pass still runs — validation-gap analysis does
         # not depend on local validators being installed.
-        enrich = _llm_enrich("qa", QA_PROMPT, state)
+        enrich = _llm_enrich("qa", QA_PROMPT, state,
+                      extra={"processes": proc_metrics})
         return {
             "findings": findings + enrich["findings"],
             "active_pgids": pgids + enrich["active_pgids"],
@@ -960,7 +1005,8 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
 
     # FR-O16: optional LLM pass with the qa role config; degrades to
     # info notes on any failure — never removes deterministic findings.
-    enrich = _llm_enrich("qa", QA_PROMPT, state)
+    enrich = _llm_enrich("qa", QA_PROMPT, state,
+                      extra={"processes": proc_metrics})
     findings += enrich["findings"]
     pgids += enrich["active_pgids"]
 

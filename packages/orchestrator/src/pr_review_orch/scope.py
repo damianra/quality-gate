@@ -136,13 +136,26 @@ def build_pr_context(
     """Bounded PR context for reviewers/sub-agents.
 
     Contents: the (truncated) diff, the list of changed files, full content
-    of changed files while budget lasts, and direct dependents discovered
-    in the repo. Hard limits: ``SCOPE_MAX_FILES`` files and
+    of changed files while budget lasts, the repo's rules doc
+    (``AGENTS.md``/``CLAUDE.md``, FR-C2) and direct dependents discovered
+    in the repo — the first ``RELATED_HEAD_FILES`` of them with head
+    excerpts (FR-C3). Hard limits: ``SCOPE_MAX_FILES`` files and
     ``SCOPE_MAX_CHARS`` total characters.
     """
     repo = Path(repo_path)
     changed_names = [f["filename"] for f in files]
     related = find_dependents(repo_path, changed_names)
+
+    agents_doc = None
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        doc_path = repo / name
+        try:
+            if doc_path.is_file():
+                agents_doc = doc_path.read_text(
+                    encoding="utf-8", errors="replace")
+                break
+        except OSError:
+            continue
 
     budget = config.SCOPE_MAX_CHARS
     # The diff is primary evidence: it gets up to half the total budget.
@@ -170,10 +183,27 @@ def build_pr_context(
         contents[rel] = text
         budget -= len(text)
 
+    # FR-C3: head excerpts of the first dependents so specialists can
+    # inspect real callers — remaining names stay listed-only.
+    related_heads: list[dict[str, str]] = []
+    for rel in related[: config.RELATED_HEAD_FILES]:
+        if budget <= 0:
+            break
+        try:
+            head = (repo / rel).read_text(
+                encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        head = head[: min(config.RELATED_HEAD_CHARS, budget)]
+        related_heads.append({"path": rel, "head": head})
+        budget -= len(head)
+
     return {
         "diff_text": scoped_diff,
         "changed_files": changed_names,
         "file_contents": contents,
         "related_files": related,
+        "related_heads": related_heads,
+        "agents_doc": agents_doc,
         "truncated": truncated,
     }

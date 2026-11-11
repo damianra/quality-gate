@@ -101,3 +101,53 @@ def test_removed_files_have_no_content(tmp_path: Path) -> None:
               "deletions": 5, "changes": 5}]
     ctx = scope.build_pr_context(str(tmp_path), files, "")
     assert "gone.ts" not in ctx["file_contents"]
+
+
+def test_fr_c2_agents_doc_collected(tmp_path: Path) -> None:
+    _write(tmp_path, "AGENTS.md", "# rules\nenglish only\n")
+    ctx = scope.build_pr_context(str(tmp_path), [], "")
+    assert ctx["agents_doc"] == "# rules\nenglish only\n"
+
+
+def test_fr_c2_agents_doc_prefers_agents_over_claude(tmp_path: Path) -> None:
+    _write(tmp_path, "AGENTS.md", "agents\n")
+    _write(tmp_path, "CLAUDE.md", "claude\n")
+    ctx = scope.build_pr_context(str(tmp_path), [], "")
+    assert ctx["agents_doc"] == "agents\n"
+
+
+def test_fr_c2_agents_doc_absent(tmp_path: Path) -> None:
+    ctx = scope.build_pr_context(str(tmp_path), [], "")
+    assert ctx["agents_doc"] is None
+
+
+def test_fr_c3_related_heads_excerpted(tmp_path: Path) -> None:
+    _write(tmp_path, "a.ts", "export const a = 1;\n")
+    _write(tmp_path, "b.ts", 'import "./a";\nexport const b = a;\n')
+    files = [{"filename": "a.ts", "status": "modified", "additions": 1,
+              "deletions": 0, "changes": 1}]
+    ctx = scope.build_pr_context(str(tmp_path), files, "")
+    assert ctx["related_heads"] == [
+        {"path": "b.ts", "head": 'import "./a";\nexport const b = a;\n'}]
+
+
+def test_fr_c3_related_head_capped(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(config, "RELATED_HEAD_CHARS", 10)
+    _write(tmp_path, "a.ts", "export const a = 1;\n")
+    _write(tmp_path, "b.ts", 'import "./a";\n' + "x" * 500)
+    files = [{"filename": "a.ts", "status": "modified", "additions": 1,
+              "deletions": 0, "changes": 1}]
+    ctx = scope.build_pr_context(str(tmp_path), files, "")
+    assert len(ctx["related_heads"][0]["head"]) == 10
+
+
+def test_fr_c3_related_head_file_cap(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(config, "RELATED_HEAD_FILES", 1)
+    _write(tmp_path, "a.ts", "export const a = 1;\n")
+    _write(tmp_path, "b.ts", 'import "./a";\n')
+    _write(tmp_path, "c.ts", 'import "./a";\n')
+    files = [{"filename": "a.ts", "status": "modified", "additions": 1,
+              "deletions": 0, "changes": 1}]
+    ctx = scope.build_pr_context(str(tmp_path), files, "")
+    assert len(ctx["related_files"]) == 2
+    assert len(ctx["related_heads"]) == 1
