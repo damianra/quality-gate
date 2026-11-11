@@ -784,10 +784,16 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
             file=cand_file))
 
     for dep in s.get("new_dependencies", []):
+        # FR-L4: {name, manifest} dicts; plain strings (older signals)
+        # still render as package.json entries.
+        if isinstance(dep, dict):
+            name, manifest = dep["name"], dep.get("manifest")
+        else:
+            name, manifest = str(dep), "package.json"
         findings.append(_finding(
             "security", "warning", "New dependency",
-            f"{dep} added to package.json — verify provenance and license.",
-            file="package.json"))
+            f"{name} added to {manifest} — verify provenance and license.",
+            file=manifest))
 
     for f in s.get("config_churn", []):
         findings.append(_finding(

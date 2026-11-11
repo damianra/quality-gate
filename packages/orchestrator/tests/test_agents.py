@@ -119,6 +119,21 @@ def test_security_blocks_on_secret():
     assert any(f["severity"] == "blocker" for f in findings)
 
 
+def test_new_dependency_finding_uses_manifest_path():
+    """FR-L4: dep findings carry the real manifest in `file`."""
+    out = agents.security_specialist(_state(signals={
+        "new_dependencies": [
+            {"name": "flask", "manifest": "pyproject.toml"},
+            {"name": "gin", "manifest": "go.mod"},
+        ],
+    }))
+    dep_findings = [f for f in out["findings"]
+                    if f["title"] == "New dependency"]
+    files = {f["file"] for f in dep_findings}
+    assert files == {"pyproject.toml", "go.mod"}
+    assert "flask added to pyproject.toml" in dep_findings[0]["detail"]
+
+
 def test_secret_in_test_file_is_warning_not_blocker():
     """Fixtures like token: 't' inside tests/ must not reject a PR."""
     state = _state(signals={

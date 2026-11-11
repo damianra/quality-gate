@@ -31,6 +31,32 @@ def test_find_dependents_index_resolution(tmp_path: Path) -> None:
     assert deps == ["app/main.ts"]
 
 
+def test_find_dependents_multilanguage(tmp_path: Path) -> None:
+    """FR-L6: go/rs/java/rb/php/cs dependents resolve to changed stems."""
+    _write(tmp_path, "pkg/engine.go", "package engine\n")
+    _write(tmp_path, "cmd/main.go", 'import (\n\t"github.com/me/app/pkg"\n)\n')
+    _write(tmp_path, "src/engine.rs", "pub fn run() {}\n")
+    _write(tmp_path, "src/main.rs", "use crate::engine;\nfn main() {}\n")
+    _write(tmp_path, "com/app/Engine.java", "class Engine {}\n")
+    _write(tmp_path, "com/app/Main.java", "import com.app.Engine;\n")
+    _write(tmp_path, "lib/engine.rb", "class Engine; end\n")
+    _write(tmp_path, "lib/app.rb", "require 'engine'\n")
+    _write(tmp_path, "src/Engine.php", "class Engine {}\n")
+    _write(tmp_path, "src/Boot.php", "use App\\Engine;\n")
+    _write(tmp_path, "Core/Engine.cs", "class Engine {}\n")
+    _write(tmp_path, "Core/Program.cs", "using Core.Engine;\n")
+
+    changed = [
+        "pkg/engine.go", "src/engine.rs", "com/app/Engine.java",
+        "lib/engine.rb", "src/Engine.php", "Core/Engine.cs",
+    ]
+    deps = set(scope.find_dependents(str(tmp_path), changed))
+    assert {
+        "cmd/main.go", "src/main.rs", "com/app/Main.java",
+        "lib/app.rb", "src/Boot.php", "Core/Program.cs",
+    } <= deps
+
+
 def test_context_includes_changed_and_related(tmp_path: Path) -> None:
     _write(tmp_path, "a.ts", "const a = 1;\n")
     _write(tmp_path, "b.ts", 'import "./a";\n')
