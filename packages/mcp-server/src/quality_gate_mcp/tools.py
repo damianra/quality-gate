@@ -118,7 +118,7 @@ _DEP_LINE_RE = re.compile(r'"([@./\w-]+)"\s*:\s*"[~^<>=\d]')
 _REQ_LINE_RE = re.compile(
     r"^\s*([A-Za-z0-9][\w.-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~]=?|;|@|$)")
 _PEP508_QUOTED_RE = re.compile(
-    r"^\s*[\"']([A-Za-z0-9][\w.-]*)(?:\[[^\]]*\])?\s*(?:[<>=!~]=|@|;)")
+    r"^\s*[\"']([A-Za-z0-9][\w.-]*)(?:\[[^\]]*\])?\s*(?:[<>=!~]=?|@|;)")
 _GO_REQUIRE_RE = re.compile(
     r"^\s*(?:require\s+)?\(?\s*([\w.-]+(?:/[\w.-]+)+)\s+v[\w.-]+")
 _COMMENT_PREFIXES = ("//", "#", "/*", "*", "*/", "<!--", "{/*")
@@ -142,11 +142,14 @@ _DOC_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 # FR-L5 scope hints: any path-like token counts, not a fixed extension
-# list — a file hint needs a dotted suffix, a directory hint needs a
-# slash. The leading lookahead requires a letter so version strings
-# ("1.2.3") don't become hints.
+# list — a file hint needs a dotted suffix containing a letter, a
+# directory hint needs a slash. Letter lookaheads keep version strings
+# ("1.2.3", "v1.2.3") out.
 _HINT_RES = [
-    re.compile(r"(?=[\w./-]*[A-Za-z_])[\w./-]+\.[A-Za-z0-9]{1,6}"),
+    # File hint: path token whose dotted suffix contains a letter —
+    # "1.2.3" and "v1.2.3" have digit-only suffixes and don't count.
+    re.compile(r"(?=[\w./-]*[A-Za-z_])[\w./-]+\.(?=[A-Za-z0-9]*[A-Za-z_])"
+               r"[A-Za-z0-9]{1,6}"),
     re.compile(r"(?=[\w./-]*[A-Za-z_])[\w.-]+(?:/[\w.-]+)+"),
 ]
 

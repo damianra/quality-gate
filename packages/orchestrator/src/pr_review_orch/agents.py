@@ -787,7 +787,7 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
         # FR-L4: {name, manifest} dicts; plain strings (older signals)
         # still render as package.json entries.
         if isinstance(dep, dict):
-            name, manifest = dep["name"], dep.get("manifest")
+            name, manifest = dep["name"], dep.get("manifest") or "package.json"
         else:
             name, manifest = str(dep), "package.json"
         findings.append(_finding(

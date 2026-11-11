@@ -76,7 +76,8 @@ def test_new_dependencies_multimanifest():
             ),
             "pyproject.toml": (
                 [],
-                ['    "flask>=3.0",', '    "bareword"', 'name = "proj"'],
+                ['    "flask>=3.0",', '    "dep>1",', '    "bareword"',
+                 'name = "proj"'],
             ),
             "go.mod": (
                 [],
@@ -89,6 +90,7 @@ def test_new_dependencies_multimanifest():
     got = {(dep["name"], dep["manifest"]) for dep in s["new_dependencies"]}
     assert ("requests", "requirements.txt") in got
     assert ("flask", "pyproject.toml") in got
+    assert ("dep", "pyproject.toml") in got         # single-char operator
     assert "bareword" not in {n for n, _ in got}   # no version specifier
     assert "proj" not in {n for n, _ in got}        # not a quoted entry
     assert ("github.com/gin-gonic/gin", "go.mod") in got
@@ -129,6 +131,9 @@ def test_hint_paths_generic_exts_and_dirs():
     assert "internal/api/handler.go" not in s["files_outside_hint"]
     assert "src/foo.rs" not in s["files_outside_hint"]
     assert "other/thing.go" in s["files_outside_hint"]
+    # digit-suffixed version tokens are not hints
+    assert "v1.2.3" not in s["scope_hints"]
+    assert not any(h.startswith("v1.2") for h in s["scope_hints"])
 
 
 def test_debug_leftovers_console_and_debugger():
