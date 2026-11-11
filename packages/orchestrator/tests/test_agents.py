@@ -587,6 +587,83 @@ def test_user_message_without_file_contents_unchanged():
     assert "## Related files" not in msg
 
 
+# -- FR-C1..C4: complete specialist evidence + role tailoring ---------------- #
+
+
+def test_fr_c1_pr_body_included_and_capped(monkeypatch):
+    monkeypatch.setattr(agents.config, "PROMPT_MAX_BODY_CHARS", 20)
+    state = _state(
+        pr_body="x" * 100,
+        pr_context={"diff_text": "d", "changed_files": []})
+    msg = agents._llm_user_message(state)
+    assert "## PR body" in msg
+    assert "x" * 20 in msg and "x" * 21 not in msg
+
+
+def test_fr_c1_empty_body_placeholder():
+    state = _state(pr_context={"diff_text": "d", "changed_files": []})
+    msg = agents._llm_user_message(state)
+    assert "## PR body\n(empty)" in msg
+
+
+def test_fr_c2_agents_doc_review_only():
+    ctx = {"diff_text": "d", "changed_files": [],
+           "agents_doc": "RULES: docs in English"}
+    review = agents._llm_user_message(_state(pr_context=ctx), "review")
+    security = agents._llm_user_message(_state(pr_context=ctx), "security")
+    qa = agents._llm_user_message(_state(pr_context=ctx), "qa")
+    assert "## Repo rules" in review and "RULES" in review
+    assert "## Repo rules" not in security
+    assert "## Repo rules" not in qa
+
+
+def test_fr_c3_related_heads_excerpted():
+    ctx = {
+        "diff_text": "d", "changed_files": ["src/a.js"],
+        "related_files": ["src/caller1.js", "src/caller2.js"],
+        "related_heads": [
+            {"path": "src/caller1.js", "head": "import a from './a.js'"}],
+    }
+    msg = agents._llm_user_message(_state(pr_context=ctx))
+    assert "## Related file excerpts" in msg
+    assert "import a from './a.js'" in msg
+    # caller2 has no excerpt -> stays in the names-only section
+    assert "## Related files (dependents, not shown)" in msg
+    assert "src/caller2.js" in msg
+
+
+def test_fr_c4_role_signal_scopes():
+    signals = {
+        "files_changed": 1, "secret_candidates": [{"file": "a", "line": "x"}],
+        "prompt_injection": [{"file": "a", "line": "y"}],
+        "files_outside_hint": ["z"], "scope_hints": ["a"],
+    }
+    ctx = {"diff_text": "d", "changed_files": ["a"]}
+    sec = agents._llm_user_message(_state(signals=signals, pr_context=ctx),
+                                   "security")
+    rev = agents._llm_user_message(_state(signals=signals, pr_context=ctx),
+                                   "review")
+    assert "secret_candidates" in sec and "prompt_injection" in sec
+    assert "secret_candidates" not in rev and "prompt_injection" not in rev
+    assert "files_outside_hint" in rev and "scope_hints" in rev
+
+
+def test_fr_c4_extra_sections_per_role():
+    state = _state(pr_context={"diff_text": "d", "changed_files": []})
+    qa = agents._llm_user_message(
+        state, "qa", extra={"processes": [{"command": "tsc", "exit_code": 0}]})
+    sec = agents._llm_user_message(
+        state, "security", extra={"audit": [{"severity": "high"}]})
+    rev = agents._llm_user_message(
+        state, "review",
+        extra={"processes": [{"command": "tsc"}],
+               "audit": [{"severity": "high"}]})
+    assert "## Validator results" in qa and "tsc" in qa
+    assert "## Dependency audit" in sec and "high" in sec
+    # extras are role-scoped: review ignores them
+    assert "## Validator results" not in rev and "## Dependency audit" not in rev
+
+
 # -- Dependency audit (FR-O24) ----------------------------------------------- #
 
 
