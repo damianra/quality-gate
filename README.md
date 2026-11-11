@@ -1,11 +1,12 @@
 # quality-gate
 
-Autonomous PR review for Expo/React Native repos. Replaces manual review:
+Autonomous PR review for GitHub repositories of any language or
+ecosystem. Replaces manual review:
 on every PR the system profiles the diff, detects *vibecoding* (whitespace
 noise, dead-comment blocks, TODOs, debug leftovers, secrets, dependency
 churn, scope drift, prompt-injection attempts), runs structural
-validation (`tsc --noEmit` / `node --check`), and posts a contractual
-verdict comment on GitHub.
+validation with the best available toolchain for the ecosystem, and
+posts a contractual verdict comment on GitHub.
 
 ## Architecture
 
@@ -235,7 +236,7 @@ worktree is removed after its run plus a startup sweep.
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — `paths:`-filtered unit tests.
 - `pr-review.yml` — on `pull_request`, spins a Postgres service, runs the
-  graph, and fails if any `tsc`/`node --check`/`rg` process survives.
+  graph, and fails if any spawned validator/scanner process survives.
 
 ## Splitting the monorepo later
 

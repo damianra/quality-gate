@@ -12,10 +12,11 @@ START -> router -> fan-out {review, security, qa} -> synthesizer -> cleanup -> E
 
 - **router** — calls `analyze_pr_signals` + `get_pr_diff`, then selects
   specialists (`review` always; `security` on secrets/deps/config churn;
-  `qa` when TS/JS files changed).
+  `qa` when code files changed — `QG_QA_CODE_EXTS`).
 - **review / security / qa** — specialists emitting structured `findings`.
-  `qa` spawns `tsc --noEmit` / `node --check` through `spawn_process` and
-  registers every `pgid` in `active_pgids`.
+  `qa` spawns the best available validator for each ecosystem
+  (`tsc --noEmit`, `node --check`, `compileall`, `go vet`, `cargo check`)
+  through `spawn_process` and registers every `pgid` in `active_pgids`.
 - **synthesizer** — merges findings into the verdict and posts the
   contractual comment via `post_verdict` (skipped on `--dry-run`).
 - **cleanup** — mandatory terminal node; `SIGTERM` then `SIGKILL` on every
