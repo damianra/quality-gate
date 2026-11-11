@@ -81,7 +81,7 @@ jobs:
         run: |
           # Fails the job if a validator/scanner process is still alive —
           # the cleanup contract is enforced, not assumed.
-          ORPHAN_RE='tsc --noEmit|node --check|compileall|go vet|cargo check|rg --line-number'
+          ORPHAN_RE='tsc --noEmit|node --check|compile\(fh\.read|go vet|cargo check|rg --line-number'
           if pgrep -f "$ORPHAN_RE" >/dev/null; then
             echo "orphan validation processes detected" >&2
             pgrep -af "$ORPHAN_RE" >&2

@@ -55,14 +55,15 @@ def _which_only(names):
     return lambda cmd: f"/usr/bin/{cmd}" if cmd in names else None
 
 
-def test_qa_commands_python_compileall(monkeypatch, tmp_path):
-    """FR-L2: changed .py files get `python -m compileall -q`."""
+def test_qa_commands_python_compile_check(monkeypatch, tmp_path):
+    """FR-L2: changed .py files get an artifact-free compile() check."""
     (tmp_path / "app.py").write_text("x = 1\n")
     monkeypatch.setattr(
         agents.shutil, "which", _which_only({"python3", "node"}))
     cmds = agents._qa_commands(tmp_path, ["app.py"])
-    assert ["/usr/bin/python3", "-m", "compileall", "-q",
-            "app.py"] in cmds
+    cmd = next(c for c in cmds if c[1] == "-c")
+    assert cmd[0] == "/usr/bin/python3" and cmd[-1] == "app.py"
+    assert "compile(" in cmd[2]
 
 
 def test_qa_commands_go_vet_and_cargo_check(monkeypatch, tmp_path):

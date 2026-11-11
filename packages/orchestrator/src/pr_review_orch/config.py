@@ -15,8 +15,8 @@ CLEANUP_GRACE_SECONDS = float(os.environ.get("QG_CLEANUP_GRACE_SECONDS", "3"))
 #: Cap on files fetched when profiling a PR.
 MAX_FILES_PAGES = int(os.environ.get("QG_MAX_FILES_PAGES", "5"))
 
-#: Timeout for QA validation processes (tsc, node --check, compileall,
-#: go vet, cargo check).
+#: Timeout for QA validation processes (tsc, node --check, python
+#: compile() check, go vet, cargo check).
 QA_PROCESS_TIMEOUT = int(os.environ.get("QG_QA_PROCESS_TIMEOUT", "120"))
 
 #: FR-L1 file extensions that activate the QA specialist — multi-language

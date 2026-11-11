@@ -176,7 +176,7 @@ duration lands in `node_durations`.
 - **FR-O5 QAAgent** — picks the best available validator per ecosystem
   present in the changed files (FR-L2): `node_modules/.bin/tsc --noEmit`
   when a `tsconfig.json` exists, `node --check` on up to 20 changed JS
-  files, `python -m compileall -q` on changed Python files,
+  files, a stdlib `compile()` syntax check on changed Python files,
   `go vet ./...` for a `go.mod` repo, `cargo check` for a `Cargo.toml`
   repo. Every spawn registers its pgid in `active_pgids`. Non-zero exit
   is a blocker, timeout is a warning, exit 127 (`command not found`) is
