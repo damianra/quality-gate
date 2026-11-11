@@ -176,7 +176,7 @@ duration lands in `node_durations`.
 - **FR-O5 QAAgent** — picks the best available validator per ecosystem
   present in the changed files (FR-L2): `node_modules/.bin/tsc --noEmit`
   when a `tsconfig.json` exists, `node --check` on up to 20 changed JS
-  files, `python -m compileall -q` on changed Python files,
+  files, a stdlib `compile()` syntax check on changed Python files,
   `go vet ./...` for a `go.mod` repo, `cargo check` for a `Cargo.toml`
   repo. Every spawn registers its pgid in `active_pgids`. Non-zero exit
   is a blocker, timeout is a warning, exit 127 (`command not found`) is
@@ -605,6 +605,7 @@ volatile during early history edits; commits are identified by subject):
 | 67 | `fix(orchestrator)`: benign-context severity policy for `prompt_injection` |
 | 68 | `docs`: benign-context severity policy in FR-O25 + READMEs |
 | 69 | `docs`: language-agnostic scope + `docs/specs/multi-language-review.md` (FR-L1..L6) |
+| 70 | `feat(orchestrator)`: multi-language QA activation + pluggable validators (FR-L1/L2) |
 
 ## 11. Extension points (SDD backlog)
 

@@ -39,6 +39,57 @@ def test_choose_agents_qa_on_ts_files():
     assert "qa" not in agents.choose_agents({}, [{"filename": "README.md"}])
 
 
+def test_choose_agents_qa_multilanguage_code_only():
+    """FR-L1: any code extension activates QA; docs/config/data don't."""
+    for name in ("app.py", "main.go", "lib.rs", "Main.java",
+                 "app.rb", "index.php", "Svc.cs"):
+        assert "qa" in agents.choose_agents(
+            {}, [{"filename": f"src/{name}"}]), name
+    for name in ("README.md", "compose.yaml", "uv.lock", ".env.example"):
+        assert "qa" not in agents.choose_agents(
+            {}, [{"filename": name}]), name
+
+
+def _which_only(names):
+    """shutil.which stub: resolves only the given executables."""
+    return lambda cmd: f"/usr/bin/{cmd}" if cmd in names else None
+
+
+def test_qa_commands_python_compile_check(monkeypatch, tmp_path):
+    """FR-L2: changed .py files get an artifact-free compile() check."""
+    (tmp_path / "app.py").write_text("x = 1\n")
+    monkeypatch.setattr(
+        agents.shutil, "which", _which_only({"python3", "node"}))
+    cmds = agents._qa_commands(tmp_path, ["app.py"])
+    cmd = next(c for c in cmds if c[1] == "-c")
+    assert cmd[0] == "/usr/bin/python3" and cmd[-1] == "app.py"
+    assert "compile(" in cmd[2]
+
+
+def test_qa_commands_go_vet_and_cargo_check(monkeypatch, tmp_path):
+    """FR-L2: go.mod + .go change -> go vet; Cargo.toml + .rs -> cargo."""
+    (tmp_path / "go.mod").write_text("module x\n")
+    (tmp_path / "Cargo.toml").write_text("[package]\nname = 'x'\n")
+    monkeypatch.setattr(
+        agents.shutil, "which", _which_only({"go", "cargo"}))
+    cmds = agents._qa_commands(tmp_path, ["main.go", "lib.rs"])
+    assert ["go", "vet", "./..."] in cmds
+    assert ["cargo", "check"] in cmds
+
+
+def test_qa_commands_manifest_without_code_change(monkeypatch, tmp_path):
+    """FR-L2: a go.mod present but no .go change -> no go vet."""
+    (tmp_path / "go.mod").write_text("module x\n")
+    monkeypatch.setattr(agents.shutil, "which", _which_only({"go"}))
+    assert agents._qa_commands(tmp_path, ["app.ts"]) == []
+
+
+def test_qa_commands_no_toolchain_no_cmds(monkeypatch, tmp_path):
+    """FR-L2: nothing detected -> empty list (info finding upstream)."""
+    monkeypatch.setattr(agents.shutil, "which", _which_only(set()))
+    assert agents._qa_commands(tmp_path, ["app.py", "main.go"]) == []
+
+
 # -- specialists --------------------------------------------------------------- #
 
 def test_review_flags_out_of_scope_and_secrets_agnostic():

@@ -44,7 +44,8 @@ data files never trigger QA on their own.
   |---|---|---|
   | TS | `node_modules/.bin/tsc` + `tsconfig.json` | `tsc --noEmit` |
   | JS | `node` on PATH | `node --check <file>` (≤20 changed files) |
-  | Python | `python3`/`python` on PATH | `python -m compileall -q <changed .py>` |
+  | Python | `python3`/`python` on PATH | `python -c` stdlib `compile()`
+  syntax check on the changed `.py` files (no bytecode artifacts) |
   | Go | `go.mod` at repo root + `go` on PATH | `go vet ./...` |
   | Rust | `Cargo.toml` at root + `cargo` on PATH | `cargo check` |
 
@@ -58,9 +59,9 @@ data files never trigger QA on their own.
 
   The CI orphan check (`.github/workflows/pr-review.yml` `pgrep`
   pattern) is widened in the same change to cover the new spawned
-  process names (`compileall`, `go`, `cargo`), and the INV-2 /
-  README wording becomes "validator/scanner processes" instead of a
-  fixed command list.
+  process signatures (`compile(fh.read`, `go vet`, `cargo check`),
+  and the INV-2 / README wording becomes "validator/scanner
+  processes" instead of a fixed command list.
 
 - **FR-L3 Multi-language debug-leftover signal.** `debug_leftovers`
   matches unambiguous debug statements across languages: JS

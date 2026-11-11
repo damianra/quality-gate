@@ -444,8 +444,12 @@ def choose_agents(signals: dict[str, Any], files: list[dict[str, Any]]) -> list[
         or signals.get("prompt_injection")
     ):
         agents.append("security")
-    code_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-    if any(Path(f["filename"]).suffix in code_exts for f in files):
+    # FR-L1: QA activates on code files only (QG_QA_CODE_EXTS); docs,
+    # configs and data files never trigger it by themselves.
+    if any(
+        Path(f["filename"]).suffix.lower() in config.QA_CODE_EXTS
+        for f in files
+    ):
         agents.append("qa")
     return agents
 
@@ -835,16 +839,53 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
-    """Pick the cheapest available validation commands for this repo."""
+    """Pick the cheapest available validation commands per ecosystem.
+
+    FR-L2 detector pattern (mirrors ``_audit_command``): every ecosystem
+    present in the changed files contributes its validator when the
+    toolchain is installed; a polyglot PR can get several commands.
+    """
     cmds: list[list[str]] = []
+    suffixes = {Path(f).suffix.lower() for f in files}
+
+    # JS/TS: project-local tsc wins; otherwise per-file node --check.
     local_tsc = repo / "node_modules" / ".bin" / "tsc"
     if local_tsc.exists() and (repo / "tsconfig.json").exists():
         cmds.append([str(local_tsc), "--noEmit"])
     elif shutil.which("node"):
-        js_files = [f for f in files if f.endswith((".js", ".jsx", ".mjs", ".cjs"))][:20]
+        js_exts = {".js", ".jsx", ".mjs", ".cjs"}
+        js_files = [
+            f for f in files
+            if Path(f).suffix.lower() in js_exts
+        ][:20]
         for f in js_files:
             if (repo / f).exists():
                 cmds.append(["node", "--check", f])
+
+    # Python: stdlib compile() syntax check — writes no __pycache__
+    # artifacts into the reviewed checkout (compileall/py_compile do).
+    py_files = [
+        f for f in files
+        if Path(f).suffix.lower() == ".py" and (repo / f).exists()
+    ][:20]
+    python = shutil.which("python3") or shutil.which("python")
+    if py_files and python:
+        cmds.append([
+            python, "-c",
+            "import sys\n"
+            "for f in sys.argv[1:]:\n"
+            "    with open(f) as fh:\n"
+            "        compile(fh.read(), f, 'exec')",
+            *py_files,
+        ])
+
+    # Go/Rust: module-level check when the manifest sits at the root.
+    if ".go" in suffixes and (repo / "go.mod").exists() \
+            and shutil.which("go"):
+        cmds.append(["go", "vet", "./..."])
+    if ".rs" in suffixes and (repo / "Cargo.toml").exists() \
+            and shutil.which("cargo"):
+        cmds.append(["cargo", "check"])
     return cmds
 
 
@@ -859,7 +900,8 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
     if not commands:
         findings.append(_finding(
             "qa", "info", "No validators available",
-            "Neither a local tsc nor node is available; structural checks skipped."))
+            "No validator toolchain detected for the changed files' "
+            "ecosystems; structural checks skipped."))
         # FR-O16: the LLM pass still runs — validation-gap analysis does
         # not depend on local validators being installed.
         enrich = _llm_enrich("qa", QA_PROMPT, state)

@@ -79,11 +79,12 @@ jobs:
       - name: Assert no orphan processes remain
         if: always()
         run: |
-          # Fails the job if a tsc/rg/git process is still alive — the
-          # cleanup contract is enforced, not assumed.
-          if pgrep -f 'tsc --noEmit|node --check|rg --line-number' >/dev/null; then
+          # Fails the job if a validator/scanner process is still alive —
+          # the cleanup contract is enforced, not assumed.
+          ORPHAN_RE='tsc --noEmit|node --check|compile\(fh\.read|go vet|cargo check|rg --line-number'
+          if pgrep -f "$ORPHAN_RE" >/dev/null; then
             echo "orphan validation processes detected" >&2
-            pgrep -af 'tsc --noEmit|node --check|rg --line-number' >&2
+            pgrep -af "$ORPHAN_RE" >&2
             exit 1
           fi
           echo "no orphan processes"
