@@ -444,8 +444,12 @@ def choose_agents(signals: dict[str, Any], files: list[dict[str, Any]]) -> list[
         or signals.get("prompt_injection")
     ):
         agents.append("security")
-    code_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-    if any(Path(f["filename"]).suffix in code_exts for f in files):
+    # FR-L1: QA activates on code files only (QG_QA_CODE_EXTS); docs,
+    # configs and data files never trigger it by themselves.
+    if any(
+        Path(f["filename"]).suffix.lower() in config.QA_CODE_EXTS
+        for f in files
+    ):
         agents.append("qa")
     return agents
 
@@ -835,8 +839,16 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
-    """Pick the cheapest available validation commands for this repo."""
+    """Pick the cheapest available validation commands per ecosystem.
+
+    FR-L2 detector pattern (mirrors ``_audit_command``): every ecosystem
+    present in the changed files contributes its validator when the
+    toolchain is installed; a polyglot PR can get several commands.
+    """
     cmds: list[list[str]] = []
+    suffixes = {Path(f).suffix.lower() for f in files}
+
+    # JS/TS: project-local tsc wins; otherwise per-file node --check.
     local_tsc = repo / "node_modules" / ".bin" / "tsc"
     if local_tsc.exists() and (repo / "tsconfig.json").exists():
         cmds.append([str(local_tsc), "--noEmit"])
@@ -845,6 +857,23 @@ def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
         for f in js_files:
             if (repo / f).exists():
                 cmds.append(["node", "--check", f])
+
+    # Python: stdlib compileall syntax check on changed files.
+    py_files = [
+        f for f in files
+        if f.endswith(".py") and (repo / f).exists()
+    ][:20]
+    python = shutil.which("python3") or shutil.which("python")
+    if py_files and python:
+        cmds.append([python, "-m", "compileall", "-q", *py_files])
+
+    # Go/Rust: module-level check when the manifest sits at the root.
+    if ".go" in suffixes and (repo / "go.mod").exists() \
+            and shutil.which("go"):
+        cmds.append(["go", "vet", "./..."])
+    if ".rs" in suffixes and (repo / "Cargo.toml").exists() \
+            and shutil.which("cargo"):
+        cmds.append(["cargo", "check"])
     return cmds
 
 
