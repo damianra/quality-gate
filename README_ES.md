@@ -1,12 +1,12 @@
 # quality-gate
 
-Revisión autónoma de Pull Requests para repositorios Expo/React Native.
-Reemplaza la revisión manual: en cada PR el sistema perfila el diff, detecta
+Revisión autónoma de Pull Requests para repositorios de GitHub de
+cualquier lenguaje o ecosistema. Reemplaza la revisión manual: en cada PR el sistema perfila el diff, detecta
 *vibecoding* (ruido de whitespace, bloques comentados, TODOs, restos de
 debug, secretos, dependencias nuevas, cambios fuera de scope, intentos
-de prompt-injection), corre validación estructural (`tsc --noEmit` /
-`node --check`) y publica un comentario contractual con el veredicto en
-GitHub.
+de prompt-injection), corre validación estructural con la mejor
+toolchain disponible para el ecosistema y publica un comentario
+contractual con el veredicto en GitHub.
 
 ## Arquitectura
 
@@ -249,7 +249,7 @@ sweep de arranque.
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — tests unitarios filtrados por `paths:`.
 - `pr-review.yml` — en `pull_request`, levanta un servicio Postgres, corre
-  el grafo y falla si sobrevive algún proceso `tsc`/`node --check`/`rg`.
+  el grafo y falla si sobrevive algún proceso validador/scanner.
 
 ## Separar el monorepo en el futuro
 

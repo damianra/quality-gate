@@ -10,12 +10,12 @@ reference.
 
 ## 1. Overview
 
-`quality-gate` is an autonomous pull-request review system, originally
-targeted at Expo/React Native repos. On every PR it profiles the diff,
-detects *vibecoding* (whitespace noise, dead commented blocks, TODOs,
-debug leftovers, hardcoded secrets, dependency churn, scope drift), runs
-structural validation (`tsc --noEmit` / `node --check`), and posts a
-contractual verdict comment on GitHub.
+`quality-gate` is an autonomous pull-request review system for GitHub
+repositories of any language or ecosystem. On every PR it profiles the
+diff, detects *vibecoding* (whitespace noise, dead commented blocks,
+TODOs, debug leftovers, hardcoded secrets, dependency churn, scope
+drift), runs structural validation with the best available toolchain
+for the ecosystem, and posts a contractual verdict comment on GitHub.
 
 The system replaces manual review and enforces one non-negotiable
 invariant: **no spawned process may outlive a review run**.
@@ -90,7 +90,7 @@ GitHub webhook (pull_request) ──> nginx :QG_INGRESS_PORT
   `run_pr_review` additionally wraps `graph.invoke` in `try/finally` that
   re-reads the checkpointed state and kills any pgid a failed/cancelled
   run left behind. The GitHub Action asserts no orphans remain (`pgrep`
-  on `tsc --noEmit|node --check|rg --line-number`).
+  on the spawned validator/scanner process names).
 - **INV-3 Secrets env-only.** `GITHUB_TOKEN`, `DATABASE_URL` and all LLM
   API keys come from environment variables only — never in code, logs,
   errors, commit messages or CLI arguments.
@@ -155,7 +155,9 @@ duration lands in `node_durations`.
   `scope.build_pr_context`, selects specialists via `choose_agents`.
 - **FR-O2 Specialist selection** — `review` always; `security` when
   `secret_candidates | new_dependencies | config_churn` is non-empty;
-  `qa` when any changed file ends in `.ts .tsx .js .jsx .mjs .cjs`.
+  `qa` when any changed file's extension is in `QG_QA_CODE_EXTS`
+  (multi-language code set; docs/config never trigger QA —
+  `docs/specs/multi-language-review.md` FR-L1).
 - **FR-O3 ReviewAgent** — findings for: missing `AGENTS.md` (info),
   whitespace-dominated diff (warning ≥0.6/>20 lines; info ≥0.3/>50),
   oversized PR (warning), commented-out blocks (warning — only
@@ -168,11 +170,15 @@ duration lands in `node_durations`.
   (`tests?/`, `__tests__/`, `__mocks__/`, `fixtures?/`, `mocks?/`,
   `*.test.*`, `*.spec.*`, `test_*.py`) — those are almost always
   inert fixtures and downgrade to warning with a `(test file)` title
-  suffix. New `package.json` dependencies and sensitive-config churn
-  are warnings.
-- **FR-O5 QAAgent** — prefer `node_modules/.bin/tsc --noEmit` when a
-  `tsconfig.json` exists; otherwise `node --check` on up to 20 changed JS
-  files. Every spawn registers its pgid in `active_pgids`. Non-zero exit
+  suffix. New dependencies in any supported manifest
+  (`package.json`, `requirements*.txt`, `pyproject.toml`, `go.mod` —
+  FR-L4) and sensitive-config churn are warnings.
+- **FR-O5 QAAgent** — picks the best available validator per ecosystem
+  present in the changed files (FR-L2): `node_modules/.bin/tsc --noEmit`
+  when a `tsconfig.json` exists, `node --check` on up to 20 changed JS
+  files, `python -m compileall -q` on changed Python files,
+  `go vet ./...` for a `go.mod` repo, `cargo check` for a `Cargo.toml`
+  repo. Every spawn registers its pgid in `active_pgids`. Non-zero exit
   is a blocker, timeout is a warning, exit 127 (`command not found`) is
   info and stops the loop. All runs pass `uv run pytest packages -q`.
 - **FR-O6 Specialist isolation** — a specialist exception never kills the
@@ -199,7 +205,8 @@ duration lands in `node_durations`.
 - **FR-O12 Blast-radius scoping** — `scope.build_pr_context` returns the
   truncated diff (≤ half the char budget), full contents of changed
   files, and direct dependents discovered by import-spec matching in
-  pure Python (JS/TS quoted specs + Python imports; skips `node_modules`,
+  pure Python across languages (JS/TS quoted specs, Python imports,
+  Go/Rust/Java/Ruby/C#/PHP specifiers — FR-L6; skips `node_modules`,
   `dist`, `build`, `__pycache__`, `.venv`, `coverage`, `.next`, `.expo`;
   ≤ 5000 files scanned). Hard caps: `QG_SCOPE_MAX_FILES`,
   `QG_SCOPE_MAX_CHARS`; `truncated` flag reports when caps kicked in.
@@ -448,10 +455,12 @@ are specified in `docs/specs/llm-telemetry.md` (FR-T2..FR-T4).
 
 ```text
 files, per_file{added,removed}, files_changed, lines_changed,
-whitespace_ratio, large_diff, config_churn[], new_dependencies[],
-debug_leftovers[], todos_added[], commented_blocks[{file,lines,sample}],
+whitespace_ratio, large_diff, config_churn[],
+new_dependencies[{name,manifest}] (multi-manifest, FR-L4),
+debug_leftovers[] (multi-language, FR-L3), todos_added[],
+commented_blocks[{file,lines,sample}],
 secret_candidates[{file,line}], prompt_injection[{file,line}],
-files_outside_hint[] (doc paths exempt), scope_hints[]
+files_outside_hint[] (doc paths exempt), scope_hints[] (FR-L5)
 ```
 
 ### 6.3 Finding schema
@@ -594,6 +603,8 @@ volatile during early history edits; commits are identified by subject):
 | 65 | `feat(mcp-server)`: `prompt_injection` signal in `analyze_diff` |
 | 66 | `feat(orchestrator)`: untrusted-data fencing + scoped finding files |
 | 67 | `fix(orchestrator)`: benign-context severity policy for `prompt_injection` |
+| 68 | `docs`: benign-context severity policy in FR-O25 + READMEs |
+| 69 | `docs`: language-agnostic scope + `docs/specs/multi-language-review.md` (FR-L1..L6) |
 
 ## 11. Extension points (SDD backlog)
 
@@ -614,7 +625,8 @@ implementing:
   fresh-context sub-agent locally; the same pattern is intended for
   specialist fan-out on larger PRs.
 - **Additional validators** — QAAgent's `_qa_commands` is the seam for
-  eslint/tsc strictness/tests runners beyond `node --check`.
+  further validators; ecosystem-agnostic coverage is specced in
+  `docs/specs/multi-language-review.md` (FR-L1/L2).
 - **New signals** — `analyze_diff` is the single pure-function seam for
   new vibecoding detectors; thresholds belong in `config.py` as `QG_*`.
 - **PR authoring flow** — `create_pr` exists; an "auto-fix PR" agent is
