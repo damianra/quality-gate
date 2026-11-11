@@ -184,8 +184,11 @@ duration lands in `node_durations`.
 - **FR-O6 Specialist isolation** — a specialist exception never kills the
   run; nodes catch it and append to `errors`.
 - **FR-O7 Synthesizer** — any blocker finding or internal error forces
-  rejection; maps findings to the checks list, builds the summary and
-  metrics report, calls `post_verdict` (skipped on `dry_run`).
+  rejection; findings with identical `(agent, title, file)` collapse
+  into one entry keeping the highest severity plus an occurrence count
+  (`docs/specs/specialist-context-path.md` FR-C10); maps findings to
+  the checks list, builds the summary and metrics report, calls
+  `post_verdict` (skipped on `dry_run`).
 - **FR-O8 Cleanup node** — `cleanup.terminate_pgids` SIGTERMs every
   registered pgid, escalates to SIGKILL after `QG_CLEANUP_GRACE_SECONDS`,
   reports `{terminated, killed, already_dead, failed}`; safe on empty/
@@ -340,16 +343,23 @@ duration lands in `node_durations`.
   denials are logged and dropped; they never reach the graph. PR
   comments stay idempotent via the existing marker (INV-4).
 - **FR-O23 Specialist prompt evidence.** `_llm_user_message` ships, in
-  addition to the diff, the full contents of changed files and the
-  names of direct dependents gathered by `build_pr_context` (FR-O12) —
-  the model reviews real code, not only hunks. Each evidence block has
-  its own char cap so oversized PRs still fit the model context:
-  `QG_PROMPT_MAX_DIFF_CHARS` (default 16000, the diff gets priority)
-  and `QG_PROMPT_MAX_FILES_CHARS` (default 12000, consumed file order,
-  files beyond the cap listed as "(N more files omitted)"). Truncated
-  sections are flagged in the prompt so the model knows the evidence
-  is partial. Context budgets remain in `config.py` for tuning
-  against the deployed `num_ctx`.
+  addition to the diff, the PR body, the target repo's `AGENTS.md`,
+  the full contents of changed files, head excerpts of direct
+  dependents gathered by `build_pr_context` (FR-O12), and a
+  role-tailored `## Inspection checklist` built from the
+  `related_tests`/`untested_paths`/`state_mutations` signals —
+  `docs/specs/specialist-context-path.md` (FR-C1..C9). The model
+  reviews real code plus named inspection points, not only hunks.
+  Each evidence block has its own char cap so oversized PRs still fit
+  the model context: `QG_PROMPT_MAX_DIFF_CHARS` (default 16000, the
+  diff gets priority), `QG_PROMPT_MAX_FILES_CHARS` (default 12000,
+  consumed file order, files beyond the cap listed as "(N more files
+  omitted)"), `QG_PROMPT_MAX_BODY_CHARS` (default 4000),
+  `QG_PROMPT_MAX_AGENTS_CHARS` (default 4000) and the
+  `QG_RELATED_HEAD_*` pair for dependent excerpts. Truncated sections
+  are flagged in the prompt so the model knows the evidence is
+  partial. Context budgets remain in `config.py` for tuning against
+  the deployed `num_ctx`.
 - **FR-O24 Dependency audit (SecurityAgent).** When the diff touches a
   dependency manifest/lockfile (`package*.json`, `requirements*.txt`,
   `pyproject.toml`, `uv.lock`, `Pipfile*`, `go.mod`, `go.sum`,
@@ -460,7 +470,10 @@ new_dependencies[{name,manifest}] (multi-manifest, FR-L4),
 debug_leftovers[] (multi-language, FR-L3), todos_added[],
 commented_blocks[{file,lines,sample}],
 secret_candidates[{file,line}], prompt_injection[{file,line}],
-files_outside_hint[] (doc paths exempt), scope_hints[] (FR-L5)
+files_outside_hint[] (doc paths exempt), scope_hints[] (FR-L5),
+related_tests[{source,tests[],test_changed}] (FR-C6),
+untested_paths[{file,line,kind,covered}] (FR-C7),
+state_mutations[{file,remove_line,add_line,pair}] (FR-C8)
 ```
 
 ### 6.3 Finding schema
@@ -493,7 +506,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT` |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT` |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
@@ -607,6 +620,9 @@ volatile during early history edits; commits are identified by subject):
 | 69 | `docs`: language-agnostic scope + `docs/specs/multi-language-review.md` (FR-L1..L6) |
 | 70 | `feat(orchestrator)`: multi-language QA activation + pluggable validators (FR-L1/L2) |
 | 71 | `feat`: multi-language signals + dependent discovery (FR-L3..L6) |
+| 72 | `docs`: specialist context-path spec (FR-C1..C10) |
+| 73 | `feat(orchestrator)`: complete specialist evidence + role playbooks (FR-C1..C5) |
+| 74 | `feat`: inspection signals + checklist + dedup (FR-C6..C10) |
 
 ## 11. Extension points (SDD backlog)
 
@@ -631,6 +647,9 @@ implementing:
   `docs/specs/multi-language-review.md` (FR-L1/L2).
 - **New signals** — `analyze_diff` is the single pure-function seam for
   new vibecoding detectors; thresholds belong in `config.py` as `QG_*`.
+  Inspection-oriented signals (test mapping, untested error paths,
+  state mutations) are specced in
+  `docs/specs/specialist-context-path.md` (FR-C6..C8).
 - **PR authoring flow** — `create_pr` exists; an "auto-fix PR" agent is
   not yet specced.
 - **Monorepo split** — `git subtree split --prefix=packages/<pkg>` is the

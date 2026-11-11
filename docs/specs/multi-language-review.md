@@ -1,7 +1,7 @@
 # Spec — language/ecosystem-agnostic review
 
-**Status:** accepted — implementation split across two PRs
-(`feat/multi-lang-qa`, `feat/multi-lang-signals`).
+**Status:** implemented (PRs #29/#30, branches
+`feat/multi-lang-qa`, `feat/multi-lang-signals`).
 **Scope:** amends SPEC.md FR-O2 (specialist selection), FR-O3
 (debug-leftover + scope-hint findings), FR-O4 (dependency finding
 wording), FR-O5 (QAAgent validators), FR-O12 (blast-radius scoping)
