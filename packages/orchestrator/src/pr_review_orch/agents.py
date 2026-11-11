@@ -118,15 +118,16 @@ def _llm_user_message(
     diff = raw_diff[: config.PROMPT_MAX_DIFF_CHARS]
     diff_cut = ctx.get("truncated") or len(diff) < len(raw_diff)
 
-    body = (state.get("pr_body") or "").strip() or "(empty)"
-    body = body[: config.PROMPT_MAX_BODY_CHARS]
+    raw_body = (state.get("pr_body") or "").strip() or "(empty)"
+    body = raw_body[: config.PROMPT_MAX_BODY_CHARS]
 
     parts = [
         f"PR #{state.get('pr_number')}: {state.get('pr_title', '')}",
         f"base: {state.get('base_ref', '')} "
         f"head: {str(state.get('head_sha', ''))[:7]}",
         "",
-        "## PR body",
+        ("## PR body (truncated to prompt budget)"
+         if len(raw_body) > len(body) else "## PR body"),
         body,
         "",
         "## Deterministic signals",
@@ -174,11 +175,12 @@ def _llm_user_message(
         parts += ["", "## Related file excerpts (dependents)"]
         for h in heads:
             parts += [f"### {h['path']}", "```", h["head"], "```"]
-    related = ctx.get("related_files") or []
-    if len(related) > len(heads):
+    shown = {h["path"] for h in heads}
+    rest = [r for r in (ctx.get("related_files") or []) if r not in shown]
+    if rest:
         parts += [
             "", "## Related files (dependents, not shown)",
-            "\n".join(related[len(heads):][:50]),
+            "\n".join(rest[:50]),
         ]
 
     if role == "security" and extra.get("audit"):

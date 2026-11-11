@@ -152,7 +152,8 @@ def build_pr_context(
         try:
             if doc_path.is_file():
                 agents_doc = doc_path.read_text(
-                    encoding="utf-8", errors="replace")
+                    encoding="utf-8", errors="replace")[
+                    : config.PROMPT_MAX_AGENTS_CHARS]
                 break
         except OSError:
             continue
