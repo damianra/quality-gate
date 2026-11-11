@@ -125,22 +125,27 @@ synthesizer so repeated signal hits stop dominating the comment.
   `{file, remove_line, add_line, pair}` — flagging sequences where
   the intermediate failure path destroys state (e.g. `git remote
   remove origin` followed by `remote add`): exactly the pattern that
-  leaves no rollback if the second step fails. Adds to §6.2.
+  leaves no rollback if the second step fails. Known limit: both
+  members of the pair must be added lines — a pre-existing
+  destructive call paired with a newly added recreative one is not
+  matched. Adds to §6.2.
 
 - **FR-C9 Inspection checklist in the user message.** Each role's
   user message gains a `## Inspection checklist` section built from
-  FR-C6..C8 plus existing signals, capped at
-  `QG_CHECKLIST_MAX_ITEMS` (default 12), each item tagged with the
-  role it belongs to:
+  FR-C6..C8 plus existing signals, each item tagged with the role it
+  belongs to:
   `1. [qa] finalizer.js:56 adds error branch 'if (!add.ok)' — is the
   failure path consistent and the error propagated?`
   `2. [security] tests/x.test.js:32 'token: t' — real credential or
   benign fixture?`
   `3. [review] finalizer.js:54-55 'remote remove'→'remote add' —
   is the intermediate failure handled?`
-  A role receives only its own items; when the list is empty the
-  section is omitted. The playbook (FR-C5) instructs the model to
-  evaluate every item, not just scan the diff.
+  A role receives only its own items, capped at
+  `QG_CHECKLIST_MAX_ITEMS` (default 12) per role message — the cap
+  applies after role filtering so one role's volume cannot starve
+  another's. When the filtered list is empty the section is omitted.
+  The playbook (FR-C5) instructs the model to evaluate every item,
+  not just scan the diff.
 
 - **FR-C10 Synthesizer dedup.** Before building the checks list,
   `synthesizer_node` collapses findings with identical
