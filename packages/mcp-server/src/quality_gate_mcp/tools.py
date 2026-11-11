@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+from pathlib import Path, PurePosixPath
 from collections import Counter
 from typing import Any
 
@@ -153,6 +154,60 @@ _HINT_RES = [
     re.compile(r"(?=[\w./-]*[A-Za-z_])[\w.-]+(?:/[\w.-]+)+"),
 ]
 
+# FR-C6..C8 inspection signals: code extensions mirror the
+# QG_QA_CODE_EXTS default (orchestrator config) so signals and QA
+# activation agree on what "code" means.
+_CODE_EXTS = {
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs",
+    ".java", ".kt", ".rb", ".php", ".cs", ".swift", ".c", ".cc",
+    ".cpp", ".h", ".hpp",
+}
+# Test-file path conventions (FR-C6).
+_TEST_FILE_RE = re.compile(
+    r"(^|/)(tests?|__tests__|spec)/|[._-](test|spec)\.[a-z]+$|"
+    r"^test_|_test\.[a-z]+$|_spec\.[a-z]+$|"
+    r"(Test|Tests)\.[a-z]+$",
+    re.IGNORECASE,
+)
+# FR-C7: new error-handling branches per language family.
+_ERR_BRANCH_RES = [
+    re.compile(r"if\s*\(\s*!\s*\w+(?:\.\w+)*\.ok\b|"
+               r"\bcatch\s*\(|\bthrow\s|\.(?:reject|Err)\s*\("),
+    re.compile(r"^\s*(?:except\b|raise\b|sys\.exit\s*\()"),
+    re.compile(r"if\s+err\s*!=\s*nil|\breturn\s+err\b|\bpanic!"),
+    re.compile(r"\brescue\b"),
+]
+# FR-C8: destructive->recreative verb pairs among added lines.
+_MUTATION_PAIRS = [
+    ("remove->add", re.compile(r"\bremove\b", re.IGNORECASE),
+     re.compile(r"\badd\b", re.IGNORECASE)),
+    ("drop->create", re.compile(r"\bdrop\b", re.IGNORECASE),
+     re.compile(r"\bcreate\b", re.IGNORECASE)),
+    ("delete->insert", re.compile(r"\bdelete\b", re.IGNORECASE),
+     re.compile(r"\binsert\b", re.IGNORECASE)),
+    ("unlink->write", re.compile(r"\bunlink\s*\("),
+     re.compile(r"\b(?:write|create)\b", re.IGNORECASE)),
+    ("rm->mkdir", re.compile(r"\brm\s+"), re.compile(r"\bmkdir\b")),
+]
+
+
+def _test_candidates(src_path: str) -> list[str]:
+    """Candidate test paths for a changed code file (FR-C6)."""
+    p = PurePosixPath(src_path)
+    stem, ext, d = p.stem, p.suffix, str(p.parent)
+    return {
+        ".py": [f"{d}/test_{stem}.py", f"{d}/{stem}_test.py",
+                f"tests/test_{stem}.py"],
+        ".go": [f"{d}/{stem}_test.go"],
+        ".rs": [f"{d}/{stem}_test.rs", f"tests/{stem}.rs"],
+        ".rb": [f"{d}/{stem}_spec.rb", f"spec/{stem}_spec.rb"],
+    }.get(ext, []) + [
+        f"{d}/{stem}.test{ext}", f"{d}/{stem}.spec{ext}",
+        f"{d}/__tests__/{stem}{ext}",
+        f"{d}/{stem}Test{ext}", f"{d}/Test{stem}{ext}",
+        f"{d}/{stem}Tests{ext}", f"tests/{stem}Test{ext}",
+    ]
+
 # Prompt-injection patterns (FR-O25): added lines that resemble
 # directives aimed at the reviewer LLMs rather than at a compiler or a
 # human. Matches are warnings, not blockers — legit docs may quote the
@@ -222,7 +277,8 @@ def _dep_name(basename: str, line: str) -> str | None:
     return None
 
 
-def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
+def analyze_diff(diff_text: str, pr_body: str = "",
+                 repo_path: str = "") -> dict[str, Any]:
     """Scan a unified diff and return deterministic vibecoding signals."""
     files: list[str] = []
     per_file: dict[str, dict[str, int]] = {}
@@ -337,6 +393,67 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
         or total_changed > config.LARGE_DIFF_LINES
     )
 
+    # FR-C6: source->test mapping by naming convention. Test existence
+    # is checked in the diff and (when repo_path is given) on disk.
+    changed = set(files)
+    code_files = [
+        f for f in files
+        if PurePosixPath(f).suffix in _CODE_EXTS
+        and not _TEST_FILE_RE.search(f)
+    ]
+    related_tests: list[dict[str, Any]] = []
+    for src in code_files:
+        cands = _test_candidates(src)
+        tests = [
+            t for t in cands
+            if t in changed
+            or (repo_path and (Path(repo_path) / t).is_file())
+        ]
+        related_tests.append({
+            "source": src,
+            "tests": sorted(set(tests)),
+            "test_changed": any(t in changed for t in cands),
+        })
+
+    # FR-C7: error-handling branches added in code files; "covered" is a
+    # naming heuristic — a related test exists AND changed in this PR.
+    covered_map = {
+        rt["source"]: bool(rt["tests"]) and rt["test_changed"]
+        for rt in related_tests
+    }
+    untested_paths: list[dict[str, Any]] = []
+    for f, line in added:
+        if PurePosixPath(f).suffix not in _CODE_EXTS or _TEST_FILE_RE.search(f):
+            continue
+        for rx in _ERR_BRANCH_RES:
+            if rx.search(line):
+                untested_paths.append({
+                    "file": f, "line": line.strip()[:120],
+                    "kind": "error-branch",
+                    "covered": covered_map.get(f, False),
+                })
+                break
+
+    # FR-C8: destructive->recreative pairs among added lines of a file.
+    added_by_file: dict[str, list[str]] = {}
+    for f, line in added:
+        added_by_file.setdefault(f, []).append(line)
+    state_mutations: list[dict[str, Any]] = []
+    for f, flines in added_by_file.items():
+        if PurePosixPath(f).suffix not in _CODE_EXTS:
+            continue
+        for name, dst_rx, rec_rx in _MUTATION_PAIRS:
+            dst = next((l for l in flines if dst_rx.search(l)), None)
+            rec = next((l for l in flines if rec_rx.search(l)), None)
+            if dst and rec:
+                state_mutations.append({
+                    "file": f,
+                    "remove_line": dst.strip()[:120],
+                    "add_line": rec.strip()[:120],
+                    "pair": name,
+                })
+
+
     return {
         "files": files,
         "per_file": per_file,
@@ -353,6 +470,9 @@ def analyze_diff(diff_text: str, pr_body: str = "") -> dict[str, Any]:
         "prompt_injection": prompt_injection,
         "files_outside_hint": files_outside_hint,
         "scope_hints": hints,
+        "related_tests": related_tests,
+        "untested_paths": untested_paths,
+        "state_mutations": state_mutations,
     }
 
 
@@ -439,7 +559,8 @@ def analyze_pr_signals(repo_path: str, pr_number: int) -> dict[str, Any]:
     with GitHubClient() as gh:
         pr = gh.get_pr(slug, pr_number)
         diff_text = gh.get_pr_diff_text(slug, pr_number)
-        signals = analyze_diff(diff_text, pr.get("body") or "")
+        signals = analyze_diff(
+            diff_text, pr.get("body") or "", repo_path=repo_path)
         signals.update(
             {
                 "pr_number": pr_number,

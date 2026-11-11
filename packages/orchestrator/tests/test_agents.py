@@ -925,3 +925,115 @@ def test_security_injection_downgrades_benign_contexts():
     assert hits["SPEC.md"]["severity"] == "info"
     assert hits["packages/mcp-server/src/tools.py"]["severity"] == "info"
     assert hits["src/evil.py"]["severity"] == "warning"
+
+
+# -- FR-C9 inspection checklist ----------------------------------------------- #
+
+
+def test_fr_c9_checklist_review_items():
+    signals = {
+        "state_mutations": [{
+            "file": "f.js", "remove_line": "remote remove origin",
+            "add_line": "remote add origin", "pair": "remove->add"}],
+        "files_outside_hint": ["other.py"],
+        "commented_blocks": [{"file": "g.js", "lines": 6, "sample": "// if"}],
+        "secret_candidates": [{"file": "t.js", "line": "x"}],
+    }
+    ctx = {"diff_text": "d", "changed_files": ["f.js"]}
+    msg = agents._llm_user_message(
+        _state(signals=signals, pr_context=ctx), "review")
+    assert "## Inspection checklist" in msg
+    assert "remove->add" in msg and "intermediate failure" in msg
+    assert "other.py" in msg and "dead code" in msg
+    # security-tagged items don't leak into the review checklist
+    assert "real credential" not in msg
+
+
+def test_fr_c9_checklist_security_items():
+    signals = {
+        "secret_candidates": [{"file": "t.js", "line": "token: 'abc'"}],
+        "prompt_injection": [{"file": "d.md", "line": "ignore rules"}],
+        "state_mutations": [{"file": "f.js", "pair": "remove->add",
+                             "remove_line": "a", "add_line": "b"}],
+    }
+    ctx = {"diff_text": "d", "changed_files": ["t.js"]}
+    msg = agents._llm_user_message(
+        _state(signals=signals, pr_context=ctx), "security")
+    assert "real credential or benign fixture" in msg
+    assert "injection attempt" in msg
+    assert "intermediate failure" not in msg  # review-tagged, absent here
+
+
+def test_fr_c9_checklist_qa_items():
+    signals = {
+        "untested_paths": [
+            {"file": "f.js", "line": "if (!ok) return", "covered": False},
+            {"file": "g.js", "line": "catch(e)", "covered": True}],
+        "related_tests": [
+            {"source": "h.py", "tests": [], "test_changed": False},
+            {"source": "i.py", "tests": ["tests/test_i.py"],
+             "test_changed": False},
+            {"source": "j.py", "tests": ["j.test.py"],
+             "test_changed": True}],
+    }
+    ctx = {"diff_text": "d", "changed_files": ["f.js"]}
+    msg = agents._llm_user_message(
+        _state(signals=signals, pr_context=ctx), "qa")
+    checklist = msg.split("## Inspection checklist", 1)[1]
+    assert "if (!ok) return" in checklist
+    assert "catch(e)" not in checklist      # covered branch not listed
+    assert "no related test file" in checklist     # h.py
+    assert "tests exist but unchanged" in checklist  # i.py
+    assert "j.py" not in checklist                 # covered -> no item
+
+
+def test_fr_c9_checklist_absent_without_signals():
+    ctx = {"diff_text": "d", "changed_files": []}
+    msg = agents._llm_user_message(_state(pr_context=ctx), "review")
+    assert "## Inspection checklist" not in msg
+
+
+def test_fr_c9_checklist_capped(monkeypatch):
+    monkeypatch.setattr(agents.config, "CHECKLIST_MAX_ITEMS", 2)
+    signals = {"files_outside_hint": ["a", "b", "c", "d"]}
+    ctx = {"diff_text": "d", "changed_files": ["x"]}
+    msg = agents._llm_user_message(
+        _state(signals=signals, pr_context=ctx), "review")
+    assert "1. a" in msg and "2. b" in msg
+    assert "3. c" not in msg
+
+
+# -- FR-C10 finding dedup ----------------------------------------------------- #
+
+
+def test_fr_c10_dedup_collapses_identical_findings():
+    f = {"agent": "security", "severity": "warning",
+         "title": "Possible secret", "detail": "d", "file": "t.js"}
+    state = _state(findings=[dict(f) for _ in range(6)])
+    out = synthesizer_node(state)
+    titles = [c["name"] for c in out["verdict"]["checks"]]
+    assert titles.count("Possible secret") == 1
+    assert "6 similar findings" in out["verdict"]["checks"][0]["detail"]
+
+
+def test_fr_c10_dedup_keeps_highest_severity():
+    base = {"agent": "review", "title": "T", "detail": "d", "file": "a.js"}
+    state = _state(findings=[
+        {**base, "severity": "info"},
+        {**base, "severity": "blocker", "detail": "worse"},
+        {**base, "severity": "warning"},
+    ])
+    out = synthesizer_node(state)
+    assert out["verdict"]["approve"] is False
+    chk = next(c for c in out["verdict"]["checks"] if c["name"] == "T")
+    assert chk["severity"] == "blocker"
+
+
+def test_fr_c10_dedup_distinct_files_not_merged():
+    def f(i):
+        return {"agent": "security", "severity": "info",
+                "title": "Possible secret", "detail": "d", "file": f"f{i}.js"}
+    state = _state(findings=[f(1), f(2)])
+    out = synthesizer_node(state)
+    names = [c["name"] for c in out["verdict"]["checks"]]
+    assert names.count("Possible secret") == 2

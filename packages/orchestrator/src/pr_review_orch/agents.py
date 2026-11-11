@@ -82,7 +82,7 @@ _CORE_SIGNAL_KEYS = (
 _ROLE_SIGNAL_KEYS = {
     "review": (
         "todos_added", "debug_leftovers", "commented_blocks",
-        "files_outside_hint", "scope_hints",
+        "files_outside_hint", "scope_hints", "state_mutations",
     ),
     "security": (
         "secret_candidates", "new_dependencies", "config_churn",
@@ -90,8 +90,54 @@ _ROLE_SIGNAL_KEYS = {
     ),
     "qa": (
         "todos_added", "debug_leftovers",
+        "related_tests", "untested_paths",
     ),
 }
+
+
+def _checklist_items(signals: dict[str, Any], role: str) -> list[str]:
+    """FR-C9: numbered inspection points derived from the FR-C6..C8
+    signals, filtered to the role. The model evaluates each item
+    instead of searching the diff unguided; the list is capped at
+    ``QG_CHECKLIST_MAX_ITEMS`` per role.
+    """
+    items: list[str] = []
+    if role == "review":
+        for m in signals.get("state_mutations") or []:
+            items.append(
+                f"{m['file']}: '{m['pair']}' pair added — is the "
+                f"intermediate failure handled?")
+        for f in signals.get("files_outside_hint") or []:
+            items.append(f"{f}: outside declared PR scope — intended?")
+        for cb in signals.get("commented_blocks") or []:
+            items.append(
+                f"{cb['file']}: {cb['lines']} commented code-like "
+                f"lines — dead code?")
+    elif role == "security":
+        for sc in signals.get("secret_candidates") or []:
+            items.append(
+                f"{sc['file']}: '{sc['line'][:60]}' — real credential "
+                f"or benign fixture?")
+        for pi in signals.get("prompt_injection") or []:
+            items.append(
+                f"{pi['file']}: '{pi['line'][:60]}' — injection "
+                f"attempt or quoted doc text?")
+    elif role == "qa":
+        for up in signals.get("untested_paths") or []:
+            if not up.get("covered"):
+                items.append(
+                    f"{up['file']}: '{up['line'][:60]}' — "
+                    f"failure path exercised by tests?")
+        for rt in signals.get("related_tests") or []:
+            if not rt["tests"]:
+                items.append(
+                    f"{rt['source']}: no related test file — "
+                    f"new logic unverifiable?")
+            elif not rt["test_changed"]:
+                items.append(
+                    f"{rt['source']}: tests exist but unchanged — do "
+                    f"they cover the new logic?")
+    return items[: config.CHECKLIST_MAX_ITEMS]
 
 
 def _llm_user_message(
@@ -140,6 +186,14 @@ def _llm_user_message(
          if diff_cut else "## Diff"),
         diff,
     ]
+
+    checklist = _checklist_items(signals, role)
+    if checklist:
+        parts += [
+            "", "## Inspection checklist",
+            "(evaluate EACH item; report only real defects)",
+            *[f"{i}. {it}" for i, it in enumerate(checklist, 1)],
+        ]
 
     if role == "review" and ctx.get("agents_doc"):
         doc = ctx["agents_doc"][: config.PROMPT_MAX_AGENTS_CHARS]

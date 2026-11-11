@@ -50,6 +50,8 @@ PROMPT_MAX_AGENTS_CHARS = int(os.environ.get("QG_PROMPT_MAX_AGENTS_CHARS", "4000
 #: FR-C3: head excerpts of direct dependents (names-only beyond this).
 RELATED_HEAD_FILES = int(os.environ.get("QG_RELATED_HEAD_FILES", "5"))
 RELATED_HEAD_CHARS = int(os.environ.get("QG_RELATED_HEAD_CHARS", "1500"))
+#: FR-C9: max inspection-checklist items per role.
+CHECKLIST_MAX_ITEMS = int(os.environ.get("QG_CHECKLIST_MAX_ITEMS", "12"))
 
 #: FR-O24 dependency audit (SecurityAgent): scanner runs over the
 #: worktree when the diff touches a dependency manifest/lockfile.
