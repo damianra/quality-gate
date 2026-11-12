@@ -11,6 +11,7 @@ be unit-tested without git or network access.
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 from pathlib import Path, PurePosixPath
 from collections import Counter
@@ -154,30 +155,44 @@ _HINT_RES = [
     re.compile(r"(?=[\w./-]*[A-Za-z_])[\w.-]+(?:/[\w.-]+)+"),
 ]
 
-# FR-C6..C8 inspection signals: code extensions mirror the
-# QG_QA_CODE_EXTS default (orchestrator config) so signals and QA
-# activation agree on what "code" means.
-_CODE_EXTS = {
-    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs",
-    ".java", ".kt", ".rb", ".php", ".cs", ".swift", ".c", ".cc",
-    ".cpp", ".h", ".hpp",
-}
-# Test-file path conventions (FR-C6).
+# FR-C6..C8 inspection signals: reads the same QG_QA_CODE_EXTS env
+# override as the orchestrator QA gate so signals and QA activation
+# agree on what "code" means.
+_CODE_EXTS = frozenset(
+    "." + e.strip().lstrip(".").lower()
+    for e in os.environ.get(
+        "QG_QA_CODE_EXTS",
+        ".ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.go,.rs,.java,.kt,.rb,.php,"
+        ".cs,.swift,.c,.cc,.cpp,.h,.hpp",
+    ).replace(",", " ").split()
+    if e.strip()
+)
+# Test-file path conventions (FR-C6). Case-sensitive on purpose: the
+# Java/Kotlin/C# convention capitalizes 'Test'/'Tests' (FooTest.java),
+# and matching case-insensitively would flag latest.py, contest.rs or
+# greatest.js as test files.
 _TEST_FILE_RE = re.compile(
-    r"(^|/)(tests?|__tests__|spec)/|[._-](test|spec)\.[a-z]+$|"
+    r"(^|/)(tests?|__tests__|spec)/|"
+    r"(^|[._-])(test|spec)\.[a-z]+$|"
     r"^test_|_test\.[a-z]+$|_spec\.[a-z]+$|"
-    r"(Test|Tests)\.[a-z]+$",
-    re.IGNORECASE,
+    r"Tests?\.[a-z]+$",
 )
 # FR-C7: new error-handling branches per language family.
 _ERR_BRANCH_RES = [
+    # JS/TS + Java-family: catch (incl. ES2019 'catch {'), throw,
+    # promise reject, Result.Err / bare Err(
     re.compile(r"if\s*\(\s*!\s*\w+(?:\.\w+)*\.ok\b|"
-               r"\bcatch\s*\(|\bthrow\s|\.(?:reject|Err)\s*\("),
-    re.compile(r"^\s*(?:except\b|raise\b|sys\.exit\s*\()"),
-    re.compile(r"if\s+err\s*!=\s*nil|\breturn\s+err\b|\bpanic!"),
-    re.compile(r"\brescue\b"),
+               r"\bcatch\s*[({]|\bthrow\s|\.reject\s*\(|\bErr\s*\("),
+    # Python: except/raise at statement start; sys/os exit anywhere
+    re.compile(r"^\s*(?:except\b|raise\b)|\bsys\.exit\s*\(|\bos\._exit\b"),
+    # Go: err checks and panic(
+    re.compile(r"if\s+err\s*!=\s*nil|\breturn\s+err\b|\bpanic\s*\("),
+    # Rust panic! + Ruby rescue
+    re.compile(r"\bpanic!|\brescue\b"),
 ]
-# FR-C8: destructive->recreative verb pairs among added lines.
+# FR-C8: destructive->recreative verb pairs among added lines. Order
+# matters: the destructive call must be added *before* the recreative
+# one (adding create-then-drop is not the flagged pattern).
 _MUTATION_PAIRS = [
     ("remove->add", re.compile(r"\bremove\b", re.IGNORECASE),
      re.compile(r"\badd\b", re.IGNORECASE)),
@@ -186,26 +201,38 @@ _MUTATION_PAIRS = [
     ("delete->insert", re.compile(r"\bdelete\b", re.IGNORECASE),
      re.compile(r"\binsert\b", re.IGNORECASE)),
     ("unlink->write", re.compile(r"\bunlink\s*\("),
-     re.compile(r"\b(?:write|create)\b", re.IGNORECASE)),
-    ("rm->mkdir", re.compile(r"\brm\s+"), re.compile(r"\bmkdir\b")),
+     re.compile(r"\b(?:write|create)", re.IGNORECASE)),
+    ("rm->mkdir", re.compile(r"\brm\s+"),
+     re.compile(r"\b(?:mkdir|write)")),
 ]
+# Caps keep the signals JSON bounded inside specialist prompts (same
+# rationale as prompt_injection[:20]).
+_MAX_RELATED_TESTS = 50
+_MAX_UNTESTED_PATHS = 50
+_MAX_STATE_MUTATIONS = 25
+
+
+def _is_test_path(path: str) -> bool:
+    return bool(_TEST_FILE_RE.search(path))
 
 
 def _test_candidates(src_path: str) -> list[str]:
     """Candidate test paths for a changed code file (FR-C6)."""
     p = PurePosixPath(src_path)
-    stem, ext, d = p.stem, p.suffix, str(p.parent)
+    stem, ext = p.stem, p.suffix
+    # PurePosixPath('foo.py').parent is '.' — root files use no prefix.
+    d = "" if str(p.parent) == "." else str(p.parent) + "/"
     return {
-        ".py": [f"{d}/test_{stem}.py", f"{d}/{stem}_test.py",
+        ".py": [f"{d}test_{stem}.py", f"{d}{stem}_test.py",
                 f"tests/test_{stem}.py"],
-        ".go": [f"{d}/{stem}_test.go"],
-        ".rs": [f"{d}/{stem}_test.rs", f"tests/{stem}.rs"],
-        ".rb": [f"{d}/{stem}_spec.rb", f"spec/{stem}_spec.rb"],
+        ".go": [f"{d}{stem}_test.go"],
+        ".rs": [f"{d}{stem}_test.rs", f"tests/{stem}.rs"],
+        ".rb": [f"{d}{stem}_spec.rb", f"spec/{stem}_spec.rb"],
     }.get(ext, []) + [
-        f"{d}/{stem}.test{ext}", f"{d}/{stem}.spec{ext}",
-        f"{d}/__tests__/{stem}{ext}",
-        f"{d}/{stem}Test{ext}", f"{d}/Test{stem}{ext}",
-        f"{d}/{stem}Tests{ext}", f"tests/{stem}Test{ext}",
+        f"{d}{stem}.test{ext}", f"{d}{stem}.spec{ext}",
+        f"{d}__tests__/{stem}{ext}",
+        f"{d}{stem}Test{ext}", f"{d}Test{stem}{ext}",
+        f"{d}{stem}Tests{ext}", f"tests/{stem}Test{ext}",
     ]
 
 # Prompt-injection patterns (FR-O25): added lines that resemble
@@ -286,6 +313,7 @@ def analyze_diff(diff_text: str, pr_body: str = "",
     removed: list[tuple[str, str]] = []  # (file, line) for '-' lines
 
     current = None
+    deleted: set[str] = set()
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git"):
             # diff --git a/old b/new
@@ -294,7 +322,12 @@ def analyze_diff(diff_text: str, pr_body: str = "",
             current = path
             files.append(current)
             per_file[current] = {"added": 0, "removed": 0}
-        elif raw.startswith(("+++", "---", "index ", "new file", "deleted file", "@@", "Binary")):
+        elif raw.startswith("+++"):
+            # `+++ /dev/null` marks a file deleted by this PR — it must
+            # not count as existing coverage in related_tests.
+            if raw.strip() == "+++ /dev/null" and current:
+                deleted.add(current)
+        elif raw.startswith(("---", "index ", "new file", "deleted file", "@@", "Binary")):
             continue
         elif raw.startswith("+") and current:
             added.append((current, raw[1:]))
@@ -394,15 +427,18 @@ def analyze_diff(diff_text: str, pr_body: str = "",
     )
 
     # FR-C6: source->test mapping by naming convention. Test existence
-    # is checked in the diff and (when repo_path is given) on disk.
-    changed = set(files)
+    # is checked in the diff and (when repo_path is given) on disk —
+    # the disk lookup reflects the local checkout state, which in
+    # service mode is the PR head worktree but in local mode is
+    # whatever branch is checked out.
+    changed = set(files) - deleted
     code_files = [
         f for f in files
         if PurePosixPath(f).suffix in _CODE_EXTS
-        and not _TEST_FILE_RE.search(f)
+        and not _is_test_path(f) and f not in deleted
     ]
     related_tests: list[dict[str, Any]] = []
-    for src in code_files:
+    for src in code_files[:_MAX_RELATED_TESTS]:
         cands = _test_candidates(src)
         tests = [
             t for t in cands
@@ -423,7 +459,8 @@ def analyze_diff(diff_text: str, pr_body: str = "",
     }
     untested_paths: list[dict[str, Any]] = []
     for f, line in added:
-        if PurePosixPath(f).suffix not in _CODE_EXTS or _TEST_FILE_RE.search(f):
+        if (PurePosixPath(f).suffix not in _CODE_EXTS
+                or _is_test_path(f) or f in deleted):
             continue
         for rx in _ERR_BRANCH_RES:
             if rx.search(line):
@@ -433,25 +470,35 @@ def analyze_diff(diff_text: str, pr_body: str = "",
                     "covered": covered_map.get(f, False),
                 })
                 break
+        if len(untested_paths) >= _MAX_UNTESTED_PATHS:
+            break
 
-    # FR-C8: destructive->recreative pairs among added lines of a file.
+    # FR-C8: destructive->recreative pairs among added lines of a file;
+    # the destructive line must be added *before* the recreative one.
     added_by_file: dict[str, list[str]] = {}
     for f, line in added:
         added_by_file.setdefault(f, []).append(line)
     state_mutations: list[dict[str, Any]] = []
     for f, flines in added_by_file.items():
-        if PurePosixPath(f).suffix not in _CODE_EXTS:
+        if (PurePosixPath(f).suffix not in _CODE_EXTS
+                or _is_test_path(f)):
             continue
         for name, dst_rx, rec_rx in _MUTATION_PAIRS:
-            dst = next((l for l in flines if dst_rx.search(l)), None)
-            rec = next((l for l in flines if rec_rx.search(l)), None)
-            if dst and rec:
+            dst_i = next(
+                (i for i, l in enumerate(flines) if dst_rx.search(l)),
+                None)
+            rec = next(
+                (l for l in flines[dst_i + 1:] if rec_rx.search(l)),
+                None) if dst_i is not None else None
+            if dst_i is not None and rec:
                 state_mutations.append({
                     "file": f,
-                    "remove_line": dst.strip()[:120],
+                    "remove_line": flines[dst_i].strip()[:120],
                     "add_line": rec.strip()[:120],
                     "pair": name,
                 })
+        if len(state_mutations) >= _MAX_STATE_MUTATIONS:
+            break
 
 
     return {

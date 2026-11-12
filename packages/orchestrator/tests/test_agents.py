@@ -999,8 +999,8 @@ def test_fr_c9_checklist_capped(monkeypatch):
     ctx = {"diff_text": "d", "changed_files": ["x"]}
     msg = agents._llm_user_message(
         _state(signals=signals, pr_context=ctx), "review")
-    assert "1. a" in msg and "2. b" in msg
-    assert "3. c" not in msg
+    assert "1. [review] a" in msg and "2. [review] b" in msg
+    assert "3. [review] c" not in msg
 
 
 # -- FR-C10 finding dedup ----------------------------------------------------- #

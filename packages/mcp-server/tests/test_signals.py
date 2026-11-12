@@ -413,3 +413,88 @@ def test_state_mutations_absent_without_pair():
     d = _diff({"src/f.js": ([], ["list.remove(x);", "const y = 2;"])})
     s = analyze_diff(d)
     assert s["state_mutations"] == []
+
+
+# -- review-feedback edge cases ------------------------------------------------ #
+
+
+def test_test_file_re_not_fooled_by_test_suffix_words():
+    # 'latest', 'contest', 'greatest', 'attest', 'protest' end in
+    # lowercase 'test(s)' but are ordinary source files.
+    d = _diff({
+        "src/latest.py": ([], ["raise ValueError('x')"]),
+        "src/contest.rs": ([], ["panic!(\"boom\")"]),
+        "src/greatest.js": ([], ["if (!r.ok) throw x"]),
+    })
+    s = analyze_diff(d)
+    assert {u["file"] for u in s["untested_paths"]} == {
+        "src/latest.py", "src/contest.rs", "src/greatest.js"}
+    # FooTest.java is still recognized as a test file
+    d2 = _diff({"src/FooTest.java": ([], ["throw new X();"])})
+    s2 = analyze_diff(d2)
+    assert s2["untested_paths"] == []
+
+
+def test_related_tests_root_level_source():
+    d = _diff({
+        "foo.py": ([], ["x = 1"]),
+        "test_foo.py": ([], ["assert True"]),
+    })
+    s = analyze_diff(d)
+    rt = next(r for r in s["related_tests"] if r["source"] == "foo.py")
+    assert rt["tests"] == ["test_foo.py"]
+    assert rt["test_changed"] is True
+
+
+def test_deleted_test_file_not_coverage():
+    d = "\n".join([
+        "diff --git a/src/f.js b/src/f.js",
+        "--- a/src/f.js",
+        "+++ b/src/f.js",
+        "@@ -1,1 +1,1 @@",
+        "+if (!r.ok) throw x",
+        "diff --git a/src/f.test.js b/src/f.test.js",
+        "--- a/src/f.test.js",
+        "+++ /dev/null",
+        "@@ -1,1 +0,0 @@",
+        "-test('x', () => {})",
+    ])
+    s = analyze_diff(d)
+    rt = next(r for r in s["related_tests"] if r["source"] == "src/f.js")
+    assert rt["tests"] == []
+    assert rt["test_changed"] is False
+    up = next(u for u in s["untested_paths"] if u["file"] == "src/f.js")
+    assert up["covered"] is False
+
+
+def test_untested_paths_extended_patterns():
+    d = _diff({"src/x.go": ([], ["panic(\"boom\")", "return Err(x)"]),
+               "src/y.js": ([], ["} catch {", "return sys.exit(1)"]),
+               "src/z.py": ([], ["return sys.exit(1)"])})
+    s = analyze_diff(d)
+    lines = {u["line"] for u in s["untested_paths"]}
+    assert "panic(\"boom\")" in lines
+    assert "return Err(x)" in lines
+    assert "} catch {" in lines
+    assert "return sys.exit(1)" in lines
+
+
+def test_state_mutations_requires_order():
+    # create-then-drop is NOT the destructive->recreative pattern
+    d = _diff({"m.py": ([], ["cursor.execute('CREATE TABLE t')",
+                              "cursor.execute('DROP TABLE t')"])})
+    s = analyze_diff(d)
+    assert s["state_mutations"] == []
+
+
+def test_state_mutations_rm_write_pair():
+    d = _diff({"a.py": ([], ["os.system('rm -rf d')",
+                             "path.write_text('x')"])})
+    s = analyze_diff(d)
+    assert s["state_mutations"][0]["pair"] == "rm->mkdir"
+
+
+def test_state_mutations_skips_test_files():
+    d = _diff({"tests/t.test.js": ([], ["fs.remove(tmp)", "fs.add(x)"])})
+    s = analyze_diff(d)
+    assert s["state_mutations"] == []

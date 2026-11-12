@@ -192,7 +192,7 @@ def _llm_user_message(
         parts += [
             "", "## Inspection checklist",
             "(evaluate EACH item; report only real defects)",
-            *[f"{i}. {it}" for i, it in enumerate(checklist, 1)],
+            *[f"{i}. [{role}] {it}" for i, it in enumerate(checklist, 1)],
         ]
 
     if role == "review" and ctx.get("agents_doc"):
