@@ -172,10 +172,12 @@ _CODE_EXTS = frozenset(
 # and matching case-insensitively would flag latest.py, contest.rs or
 # greatest.js as test files.
 _TEST_FILE_RE = re.compile(
-    r"(^|/)(tests?|__tests__|spec)/|"
+    # dir names are case-insensitive (Tests/ is a common .NET/Java
+    # convention); the Test/Tests *suffix* stays case-sensitive.
+    r"(?i:(^|/)(tests?|__tests__|spec)/)|"
     r"(^|[._-])(test|spec)\.[a-z]+$|"
-    r"^test_|_test\.[a-z]+$|_spec\.[a-z]+$|"
-    r"Tests?\.[a-z]+$",
+    r"(^|/)test_|_test\.[a-z]+$|_spec\.[a-z]+$|"
+    r"(^|/)Test\w*\.|Tests?\.[a-z]+$",
 )
 # FR-C7: new error-handling branches per language family.
 _ERR_BRANCH_RES = [
@@ -183,8 +185,10 @@ _ERR_BRANCH_RES = [
     # promise reject, Result.Err / bare Err(
     re.compile(r"if\s*\(\s*!\s*\w+(?:\.\w+)*\.ok\b|"
                r"\bcatch\s*[({]|\bthrow\s|\.reject\s*\(|\bErr\s*\("),
-    # Python: except/raise at statement start; sys/os exit anywhere
-    re.compile(r"^\s*(?:except\b|raise\b)|\bsys\.exit\s*\(|\bos\._exit\b"),
+    # Python: except/raise at statement start; sys/os exit anywhere;
+    # '|| raise' covers the Ruby modifier idiom.
+    re.compile(r"^\s*(?:except\b|raise\b)|\|\|\s*raise\b|"
+               r"\bsys\.exit\s*\(|\bos\._exit\b"),
     # Go: err checks and panic(
     re.compile(r"if\s+err\s*!=\s*nil|\breturn\s+err\b|\bpanic\s*\("),
     # Rust panic! + Ruby rescue
@@ -201,9 +205,9 @@ _MUTATION_PAIRS = [
     ("delete->insert", re.compile(r"\bdelete\b", re.IGNORECASE),
      re.compile(r"\binsert\b", re.IGNORECASE)),
     ("unlink->write", re.compile(r"\bunlink\s*\("),
-     re.compile(r"\b(?:write|create)", re.IGNORECASE)),
+     re.compile(r"\b(?:write|create)\w*\s*\(", re.IGNORECASE)),
     ("rm->mkdir", re.compile(r"\brm\s+"),
-     re.compile(r"\b(?:mkdir|write)")),
+     re.compile(r"\bmkdir\b|\bwrite\w*\s*\(")),
 ]
 # Caps keep the signals JSON bounded inside specialist prompts (same
 # rationale as prompt_injection[:20]).
@@ -487,8 +491,10 @@ def analyze_diff(diff_text: str, pr_body: str = "",
             dst_i = next(
                 (i for i, l in enumerate(flines) if dst_rx.search(l)),
                 None)
+            # search the dst line itself too — 'rm -rf d && mkdir d'
+            # is the same pattern on one added line.
             rec = next(
-                (l for l in flines[dst_i + 1:] if rec_rx.search(l)),
+                (l for l in flines[dst_i:] if rec_rx.search(l)),
                 None) if dst_i is not None else None
             if dst_i is not None and rec:
                 state_mutations.append({

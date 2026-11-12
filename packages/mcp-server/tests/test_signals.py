@@ -498,3 +498,32 @@ def test_state_mutations_skips_test_files():
     d = _diff({"tests/t.test.js": ([], ["fs.remove(tmp)", "fs.add(x)"])})
     s = analyze_diff(d)
     assert s["state_mutations"] == []
+
+
+def test_test_file_re_capitalized_dirs_and_prefixed_names():
+    d = _diff({"Tests/Foo.cs": ([], ["throw new X();"]),
+               "src/test_foo.py": ([], ["raise X()"]),
+               "a/TestFoo.java": ([], ["throw new Y();"])})
+    s = analyze_diff(d)
+    # all three are test files -> no error-branch signals on them
+    assert s["untested_paths"] == []
+    # and none appear as related_tests sources
+    assert s["related_tests"] == []
+
+
+def test_state_mutations_same_line_pair():
+    d = _diff({"a.py": ([], ["os.system('rm -rf d && mkdir d')"])})
+    s = analyze_diff(d)
+    assert s["state_mutations"][0]["pair"] == "rm->mkdir"
+
+
+def test_state_mutations_created_at_not_recreative():
+    d = _diff({"a.py": ([], ["os.unlink(p)", "obj.created_at = now()"])})
+    s = analyze_diff(d)
+    assert s["state_mutations"] == []
+
+
+def test_untested_paths_ruby_or_raise():
+    d = _diff({"a.rb": ([], ["foo || raise 'err'"])})
+    s = analyze_diff(d)
+    assert any("|| raise" in u["line"] for u in s["untested_paths"])

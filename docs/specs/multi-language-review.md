@@ -127,8 +127,10 @@ list of matched added lines.
 ### 3.2 `QG_QA_CODE_EXTS`
 
 Comma-separated extension list (with or without leading dot), env
-`QG_QA_CODE_EXTS`, default per FR-L1. Parsed once in `config.py`
-like the other `QG_*` settings.
+`QG_QA_CODE_EXTS`, default per FR-L1. Parsed in `config.py` like the
+other `QG_*` settings; `tools.py` parses the same env var for the
+FR-C6..C8 inspection signals so QA activation and signals agree on
+what counts as code.
 
 ## 4. Non-functional
 
