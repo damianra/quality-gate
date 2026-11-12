@@ -88,9 +88,40 @@ def qa_node(state: PRReviewState) -> dict[str, Any]:
         return {"errors": [f"qa: {exc}"]}
 
 
+def _dedup_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse identical (agent, title, file) findings into one (FR-C10).
+
+    Keeps the highest severity across duplicates and appends the
+    occurrence count so repeated signal hits (e.g. six identical
+    secret-candidate warnings on one test file) render once.
+    """
+    rank = {"info": 0, "warning": 1, "blocker": 2}
+    merged: dict[tuple[str, str, Any], dict[str, Any]] = {}
+    order: list[tuple[str, str, Any]] = []
+    for f in findings:
+        key = (f.get("agent", ""), f.get("title", ""), f.get("file"))
+        if key not in merged:
+            merged[key] = {**f, "_count": 1}
+            order.append(key)
+            continue
+        cur = merged[key]
+        cur["_count"] += 1
+        if rank.get(f.get("severity"), 0) > rank.get(cur.get("severity"), 0):
+            cur["severity"] = f["severity"]
+            cur["detail"] = f["detail"]
+    out = []
+    for key in order:
+        f = merged[key]
+        n = f.pop("_count")
+        if n > 1:
+            f = {**f, "detail": f"{f['detail']} — {n} similar findings"}
+        out.append(f)
+    return out
+
+
 def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     """Consolidate findings into a verdict and publish it (unless dry-run)."""
-    findings = state.get("findings", [])
+    findings = _dedup_findings(state.get("findings", []))
     blockers = [f for f in findings if f["severity"] == "blocker"]
     approve = not blockers
 

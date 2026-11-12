@@ -128,7 +128,10 @@ synthesizer so repeated signal hits stop dominating the comment.
   leaves no rollback if the second step fails. Known limit: both
   members of the pair must be added lines — a pre-existing
   destructive call paired with a newly added recreative one is not
-  matched. Adds to §6.2.
+  matched. The `remove`/`add` verbs are intentionally broad —
+  collection churn (`list.remove` + `set.add`) may flag; the FR-C9
+  checklist instructs the model to adjudicate rather than report
+  every item. Adds to §6.2.
 
 - **FR-C9 Inspection checklist in the user message.** Each role's
   user message gains a `## Inspection checklist` section built from
