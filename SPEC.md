@@ -652,6 +652,11 @@ implementing:
   `docs/specs/specialist-context-path.md` (FR-C6..C8).
 - **PR authoring flow** — `create_pr` exists; an "auto-fix PR" agent is
   not yet specced.
+- **Production hardening** — `docs/specs/production-hardening.md`
+  (FR-P1..P19): commit-status gating, durable run queue, failure
+  visibility, env scrubbing + validator execution policy, TLS/exposure
+  hygiene, structured logging/readiness/alerting, backups, GitHub App
+  auth and supported LLM deployment profiles.
 - **Monorepo split** — `git subtree split --prefix=packages/<pkg>` is the
   documented exit path.
 
