@@ -223,6 +223,11 @@ _DDL = (
     "ADD COLUMN IF NOT EXISTS model_size_mb DOUBLE PRECISION",
     "ALTER TABLE llm_call_metrics "
     "ADD COLUMN IF NOT EXISTS model_vram_mb DOUBLE PRECISION",
+    # FR-P2: failed runs are visible in run_metrics, not just in logs.
+    "ALTER TABLE run_metrics "
+    "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'",
+    "ALTER TABLE run_metrics "
+    "ADD COLUMN IF NOT EXISTS error TEXT",
 )
 
 _RUN_INSERT = """
@@ -230,9 +235,9 @@ _RUN_INSERT = """
         run_id, repo, pr_number, head_sha, dry_run, duration_s,
         verdict_approve, blockers, warnings, infos,
         llm_calls_count, prompt_tokens, completion_tokens, total_tokens,
-        nodes, processes, metrics
+        nodes, processes, metrics, status, error
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s)
+              %s, %s, %s, %s, %s)
 """
 
 _CALL_INSERT = """
@@ -246,7 +251,10 @@ _CALL_INSERT = """
 """
 
 
-def _run_row(state: dict[str, Any], run_id: str) -> tuple[Any, ...]:
+def _run_row(
+    state: dict[str, Any], run_id: str,
+    status: str = "ok", error: str | None = None,
+) -> tuple[Any, ...]:
     """Column tuple for one ``run_metrics`` row. Pure for tests."""
     report = state.get("metrics") or summarize(state)
     counts = {"blocker": 0, "warning": 0, "info": 0}
@@ -274,6 +282,8 @@ def _run_row(state: dict[str, Any], run_id: str) -> tuple[Any, ...]:
         Jsonb(report["nodes"]),
         Jsonb(report["processes"]["detail"]),
         Jsonb(report),
+        status,
+        error,
     )
 
 
@@ -323,14 +333,17 @@ def _call_rows(state: dict[str, Any], run_id: str) -> list[tuple[Any, ...]]:
 
 
 def persist_run(
-    state: dict[str, Any], run_id: str, dsn: str | None = None
+    state: dict[str, Any], run_id: str, dsn: str | None = None,
+    status: str = "ok", error: str | None = None,
 ) -> None:
     """Write task + per-model-call telemetry to Postgres (FR-O18).
 
     No-op when ``dsn``/``DATABASE_URL`` is unset. ``run_id`` is the
     checkpointer thread id (``pr-review/{slug}/{pr}``) so metrics join
-    back to the task. Write failures are logged and swallowed —
-    telemetry must never break a review run.
+    back to the task. ``status``/``error`` (FR-P2) mark the run
+    ``ok|error|timeout`` so crashed runs are queryable, not invisible.
+    Write failures are logged and swallowed — telemetry must never
+    break a review run.
     """
     dsn = config.DATABASE_URL if dsn is None else dsn
     if not dsn:
@@ -344,7 +357,8 @@ def persist_run(
                     for ddl in _DDL:
                         cur.execute(ddl)
                     _SCHEMA_READY = True
-                cur.execute(_RUN_INSERT, _run_row(state, run_id))
+                cur.execute(
+                    _RUN_INSERT, _run_row(state, run_id, status, error))
                 for row in _call_rows(state, run_id):
                     cur.execute(_CALL_INSERT, row)
             conn.commit()

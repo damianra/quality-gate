@@ -143,7 +143,10 @@ bloque `<details>` plegable agrega telemetría por modelo: tokens (p+c),
 duración, tok/s de completion, delta de RSS del proceso y el footprint
 que reporta el proveedor (Ollama `/api/ps` → RAM/VRAM). Lo que un
 proveedor no devuelve se muestra como `—`; la telemetría nunca bloquea
-una ejecución.
+una ejecución. Las filas persistidas de `run_metrics` llevan columnas
+`status` (`ok|error|timeout`) + `error` (FR-P2): un run fallido es una
+fila consultable, no un hueco silencioso —
+`SELECT * FROM run_metrics WHERE status <> 'ok'` lista los fallos.
 
 ### Proveedor de LLM (opcional)
 

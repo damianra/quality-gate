@@ -289,20 +289,31 @@ def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False,
         "processes": [],
     }
     run_config = {"configurable": {"thread_id": _thread_id(slug, pr_number)}}
+    run_id = run_config["configurable"]["thread_id"]
 
-    if config.DATABASE_URL:
-        from langgraph.checkpoint.postgres import PostgresSaver
+    try:
+        if config.DATABASE_URL:
+            from langgraph.checkpoint.postgres import PostgresSaver
 
-        with PostgresSaver.from_conn_string(config.DATABASE_URL) as checkpointer:
-            checkpointer.setup()
-            final = _invoke(build_graph(checkpointer), initial, run_config)
-    else:
-        from langgraph.checkpoint.memory import InMemorySaver
+            with PostgresSaver.from_conn_string(
+                    config.DATABASE_URL) as checkpointer:
+                checkpointer.setup()
+                final = _invoke(build_graph(checkpointer), initial, run_config)
+        else:
+            from langgraph.checkpoint.memory import InMemorySaver
 
-        final = _invoke(build_graph(InMemorySaver()), initial, run_config)
+            final = _invoke(build_graph(InMemorySaver()), initial, run_config)
 
-    # FR-O18: persist task telemetry; best-effort, never raises.
-    metrics.persist_run(
-        final, run_id=run_config["configurable"]["thread_id"]
-    )
+        # FR-O18: persist task telemetry; best-effort, never raises.
+        metrics.persist_run(final, run_id=run_id)
+    except Exception as exc:
+        # FR-P2: a crashed run still leaves a run_metrics row —
+        # status=error|timeout plus the exception summary, so "the
+        # review never ran" is a query, not a mystery.
+        metrics.persist_run(
+            initial, run_id=run_id,
+            status="timeout" if isinstance(exc, TimeoutError) else "error",
+            error=f"{type(exc).__name__}: {exc}"[:500],
+        )
+        raise
     return final
