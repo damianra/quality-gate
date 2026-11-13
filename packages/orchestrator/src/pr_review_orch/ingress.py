@@ -25,6 +25,8 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 
+from quality_gate_mcp import tools as mcp_tools
+
 from . import config, fetch, graph
 
 logger = logging.getLogger(__name__)
@@ -97,21 +99,51 @@ def _enqueue(delivery: str, event: dict[str, Any]) -> str:
     return "enqueued"
 
 
+async def _post_status(event: dict[str, Any], state: str,
+                       description: str) -> None:
+    """Best-effort commit status (FR-P8): failures log, never raise.
+
+    The status lands on the *delivery* head sha — the exact commit the
+    run reviewed — not whatever head the PR may have moved to mid-run.
+    """
+    try:
+        await asyncio.to_thread(
+            mcp_tools.post_commit_status,
+            event["repo"], event["head_sha"], state,
+            description, config.STATUS_CONTEXT,
+        )
+    except Exception:
+        logger.warning(
+            "commit status %s failed for %s@%s",
+            state, event["repo"], event["head_sha"][:7], exc_info=True,
+        )
+
+
 async def _run_once(event: dict[str, Any]) -> None:
     """Clone -> review -> rmtree for one event (INV-2 directory cleanup)."""
     worktree = None
     try:
+        # FR-P8: gate the delivery sha — pending up front so the PR shows
+        # the required check while the review runs.
+        await _post_status(event, "pending", "review in progress")
         worktree = await asyncio.to_thread(
             fetch.clone_pr, event["clone_url"], event["head_sha"]
         )
-        await asyncio.to_thread(
+        final = await asyncio.to_thread(
             graph.run_pr_review, str(worktree), event["pr_number"],
             repo_slug=event["repo"],
+        )
+        approve = bool((final or {}).get("verdict", {}).get("approve"))
+        await _post_status(
+            event,
+            "success" if approve else "failure",
+            "review approved" if approve else "changes required",
         )
     except Exception:
         logger.exception(
             "run failed for %s#%s", event["repo"], event["pr_number"]
         )
+        await _post_status(event, "error", "review failed — see logs")
     finally:
         if worktree is not None:
             shutil.rmtree(worktree, ignore_errors=True)

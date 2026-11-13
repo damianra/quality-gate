@@ -101,3 +101,7 @@ MAX_WORKTREE_BYTES = int(
 
 #: Max review runs executing in parallel across distinct PR threads.
 MAX_CONCURRENT_RUNS = int(os.environ.get("QG_MAX_CONCURRENT_RUNS", "2"))
+
+#: FR-P8: commit-status context posted on the PR head sha so repos can
+#: require the review via branch protection ("require status checks").
+STATUS_CONTEXT = os.environ.get("QG_STATUS_CONTEXT", "quality-gate")
