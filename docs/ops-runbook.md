@@ -2,7 +2,9 @@
 
 Everything needed to bring up, monitor, and recover the quality-gate
 service on a single VM. Assumes `compose.yaml` at the repo root and a
-public hostname `QG_PUBLIC_HOST` pointing at the box.
+public hostname `QG_PUBLIC_HOST` pointing at the box. Deploying on AWS?
+`docs/aws-deployment.md` (FR-P28) covers the EC2/SG/SSM/EBS layer —
+this runbook applies on top of it.
 
 ## 1. Bring-up (production)
 
