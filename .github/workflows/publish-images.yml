@@ -1,0 +1,59 @@
+name: publish-images
+
+# FR-P29: build both package images once in CI and push them to GHCR.
+# compose.prod.yaml consumes these `image:` refs so the prod host runs
+# without the source tree or a build toolchain.
+#
+# Tags: <image>:<commit-sha> (immutable per merge) + <image>:latest.
+# amd64 only — ARM hosts build from source via compose.yaml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/publish-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - pkg: pr-review-orchestrator
+            dockerfile: packages/orchestrator/Dockerfile
+          - pkg: quality-gate-mcp
+            dockerfile: packages/mcp-server/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.pkg }}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.pkg }}
+        run: |
+          set -euo pipefail
+          docker build -t "${IMAGE}:${{ github.sha }}" \
+                       -t "${IMAGE}:latest" \
+                       -f "${{ matrix.dockerfile }}" .
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+          {
+            echo "### ${{ matrix.pkg }}"
+            docker inspect \
+              --format='- `'"${IMAGE}:${{ github.sha}}"'` → {{index .RepoDigests 0}}' \
+              "${IMAGE}:${{ github.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"
