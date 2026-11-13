@@ -4,8 +4,16 @@
 # Dumps the `qualitygate` database (LangGraph checkpoints + run_metrics +
 # pending_runs) via `docker compose exec -T postgres pg_dump`, gzipped to
 # ${QG_BACKUP_DIR:-./backups}. Files older than ${QG_BACKUP_RETENTION_DAYS:-14}
-# days are pruned. Copy the dumps off-box (object storage, rsync) from a
-# wrapper if needed — this script keeps the local tier only.
+# days are pruned. Credentials resolve inside the container from the
+# POSTGRES_* env (FR-P24) — nothing is read from the host env.
+#
+# FR-P27 off-box tier: when QG_BACKUP_S3_URI is set (e.g.
+# s3://my-bucket/quality-gate), each dump is uploaded with `aws s3 cp`
+# after the local write. Auth comes from the instance IAM role,
+# AWS_PROFILE or standard AWS_* env vars — never from this script.
+# Non-AWS object stores: use rclone in a wrapper instead
+# (`rclone copy ${QG_BACKUP_DIR} remote:bucket/quality-gate`). Bucket
+# lifecycle rules are the remote retention tier.
 #
 # Cron example (02:30 daily, repo root):
 #   30 2 * * * cd /opt/quality-gate && ./deploy/backup.sh >> /var/log/qg-backup.log 2>&1
@@ -23,10 +31,31 @@ OUT="${BACKUP_DIR}/qualitygate-${STAMP}.dump.gz"
 mkdir -p "${BACKUP_DIR}"
 
 docker compose exec -T postgres \
-    pg_dump -U qualitygate -d qualitygate --format=custom \
+    sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
   | gzip > "${OUT}"
 
 echo "backup written: ${OUT} ($(du -h "${OUT}" | cut -f1))"
 
+REMOTE_RC=0
+if [[ -n "${QG_BACKUP_S3_URI:-}" ]]; then
+    if command -v aws >/dev/null 2>&1; then
+        DEST="${QG_BACKUP_S3_URI%/}/$(basename "${OUT}")"
+        if aws s3 cp "${OUT}" "${DEST}"; then
+            echo "backup uploaded: ${DEST}"
+        else
+            echo "S3 upload failed — dump kept locally only" >&2
+            REMOTE_RC=1
+        fi
+    else
+        echo "QG_BACKUP_S3_URI set but aws CLI not on PATH —" \
+             "dump kept locally only" >&2
+        REMOTE_RC=1
+    fi
+fi
+
 find "${BACKUP_DIR}" -name 'qualitygate-*.dump.gz' \
     -mtime "+${RETENTION_DAYS}" -delete
+
+# A declared-but-failed off-box tier fails the job so cron/systemd
+# surfaces it — local pruning above still ran.
+exit "${REMOTE_RC}"
