@@ -1,7 +1,8 @@
 # Spec — production hardening (service mode)
 
 **Status:** implemented — FR-P1..P19 via PRs #35–#52, steady-state
-follow-ups FR-P20 #55 · FR-P22 #56 · FR-P21 #57.
+follow-ups FR-P20 #55 · FR-P22 #56 · FR-P21 #57. Phase-3 deployment
+readiness FR-P23..P30 specced below, implementation pending.
 **Scope:** amends SPEC.md
 FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
 FR-O9 (runner signature), §7 (configuration surface), §8 (delivery
@@ -246,6 +247,63 @@ Every fix is sized for tens of PRs/day.
   link, the NFR-P1 external port-scan verification procedure, and
   recovery procedures (restart, DB restore, stuck `pending_runs`).
 
+### Deployment readiness (phase-3 follow-ups)
+
+- **FR-P23 Public readiness path.** The nginx front proxies
+  `GET /readyz` (alongside `/healthz`) so external monitors reach the
+  readiness signal through the single TLS surface — today only the
+  backend port answers it and the runbook's public `curl /readyz`
+  check returns 404. The endpoint discloses only `status`,
+  `postgres` and `queue_depth`; that exposure is accepted and
+  documented here. NFR-P1 is unchanged — one public port.
+
+- **FR-P24 Compose secret hygiene.** `POSTGRES_USER`,
+  `POSTGRES_PASSWORD`, `POSTGRES_DB` and both `DATABASE_URL`
+  injections resolve from env (`${VAR:?}` required-checks) instead of
+  committed literals; `.env.example` documents them. The loopback/
+  internal binding stays — a read of `compose.yaml` alone no longer
+  yields working credentials.
+
+- **FR-P25 Container log rotation.** Long-running compose services
+  declare the `json-file` driver with bounded `max-size`/`max-file` so
+  an unattended host cannot fill its disk on structured logs.
+  Defaults are sane (`10m` × `5`); the knobs are overridable via env.
+
+- **FR-P26 Anthropic structured output.** `json_mode` on the
+  `anthropic` provider is never silently ignored: when the Messages
+  API supports a structured-output mechanism for the configured model
+  it is sent; otherwise `.env.example` stops suggesting the flag for
+  that provider. The JSON findings contract must not depend on prompt
+  politeness alone where the API offers enforcement.
+
+- **FR-P27 Off-box backup tier.** `deploy/backup.sh` ships each dump
+  to object storage when `QG_BACKUP_S3_URI` is set (`aws s3 cp`;
+  `rclone` documented as the alternative for non-AWS stores). The
+  local tier and its retention are unchanged; `docs/backup-restore.md`
+  gains the fetch step. Bucket lifecycle rules are the operator's
+  remote retention tier.
+
+- **FR-P28 AWS bring-up guide.** `docs/aws-deployment.md` covers the
+  single-VM AWS deployment: EC2 sizing for the NFR-P5 ceiling, a
+  security group exposing only 443 (SSH restricted to operator CIDRs),
+  DNS → `QG_PUBLIC_HOST`, secrets pulled from SSM Parameter Store or
+  Secrets Manager at boot (never baked into the AMI or printed to
+  user-data logs), and the pgdata persistence choice (dedicated EBS
+  volume vs. the documented RDS trade-off).
+
+- **FR-P29 Immutable image delivery.** CI builds both package images
+  and pushes tag+digest refs to a registry (GHCR). A
+  `compose.prod.yaml` overlay consumes `image:` refs so the host runs
+  without the source tree or a build toolchain; `compose.yaml` keeps
+  `build:` for development.
+
+- **FR-P30 Update and rollback procedure.** The ops runbook gains an
+  upgrade section: deploy = pull the new tag and
+  `compose -f compose.yaml -f compose.prod.yaml up -d`; rollback = pin
+  the previous tag and re-deploy. Schema evolution is additive
+  (memoized `IF NOT EXISTS` DDL), so an older binary reads a newer
+  database safely.
+
 ## 3. Contracts
 
 ### 3.1 Commit status (FR-P8)
@@ -319,7 +377,10 @@ FR-P14 (supply chain), FR-P13 (image). Phase 2 (steady state): FR-P18
 (GitHub App), FR-P7 hardening, e2e coverage of the failure matrix
 (SPEC.md §9 extension), ops runbook. Phase 2 items landed as FR-P18
 (#52) plus FR-P20 (self-owned sweep), FR-P21 (failure-matrix e2e) and
-FR-P22 (ops runbook).
+FR-P22 (ops runbook). Phase 3 (deployment readiness, one PR per item):
+FR-P23 readiness path, FR-P24 compose secrets, FR-P25 log rotation,
+FR-P26 Anthropic structured output, FR-P27 off-box backups, FR-P28 AWS
+guide, FR-P29 image delivery, FR-P30 update/rollback.
 
 ## 6. Deferred backlog (explicit non-goals for now)
 
@@ -332,3 +393,13 @@ FR-P22 (ops runbook).
 - **LLM circuit breaker.** The existing per-call timeout + graceful
   degradation already prevents hangs; a breaker would only save
   latency on doomed calls — an optimization, not a gap.
+- **Aggregate LLM cost budget.** `llm_calls` records per-call usage
+  but nothing caps spend per day or per review; add a budget check
+  when cost matters (the `deterministic` profile stays the zero-cost
+  option).
+- **LLM call retries.** A specialist call fails → deterministic
+  degrade (FR-O16) on the first transient error; bounded retries would
+  recover the enrichment on 429/5xx at the cost of latency.
+- **Metrics endpoint.** `/readyz` + JSON logs + the dead-man heartbeat
+  cover the NFR-P5 scale; a Prometheus/OpenMetrics surface is
+  premature.
