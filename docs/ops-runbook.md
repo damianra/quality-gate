@@ -47,6 +47,8 @@ mcp-server *only when* the `debug` profile is up).
 
 - **Readiness**: `GET /readyz` → `{"status","postgres","queue_depth"}`;
   `503` when Postgres is down. `/healthz` is process liveness only.
+  Both are proxied through nginx (FR-P23); `/readyz` carries its own
+  tighter per-IP rate limit because each request touches Postgres.
 - **Logs**: one JSON object per record, correlated by
   `run_id = pr-review/{repo}/{pr}` — the same key `run_metrics` uses.
   `journalctl -u docker | grep '"run_id":"pr-review/acme/widgets/7"'`
