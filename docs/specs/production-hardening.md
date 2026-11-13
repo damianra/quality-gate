@@ -1,7 +1,7 @@
 # Spec — production hardening (service mode)
 
-**Status:** implemented for FR-P1..P19 (PRs #35–#52); FR-P20..P22
-(steady-state follow-ups, §2 last section) in progress.
+**Status:** implemented — FR-P1..P19 via PRs #35–#52, steady-state
+follow-ups FR-P20 #55 · FR-P22 #56 · FR-P21 #57.
 **Scope:** amends SPEC.md
 FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
 FR-O9 (runner signature), §7 (configuration surface), §8 (delivery
