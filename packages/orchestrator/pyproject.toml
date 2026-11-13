@@ -30,3 +30,8 @@ quality-gate-mcp = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# FR-P21: e2e failure-matrix tests are hermetic but marked so they can
+# be selected (`pytest -m e2e`) or skipped (`pytest -m "not e2e"`).
+markers = [
+    "e2e: failure-matrix end-to-end coverage of the service path",
+]

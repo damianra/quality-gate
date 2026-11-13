@@ -16,3 +16,8 @@ members = ["packages/*"]
 [tool.uv.sources]
 quality-gate-mcp = { workspace = true }
 pr-review-orchestrator = { workspace = true }
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: failure-matrix end-to-end coverage of the service path",
+]
