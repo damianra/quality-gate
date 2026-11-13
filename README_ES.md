@@ -213,7 +213,12 @@ El stack también puede correr como servicio en vez de por invocación:
 nginx expone UN solo puerto público, el ingress verifica y encola los
 webhooks `pull_request` de GitHub, cada evento aceptado clona el head
 del PR en un worktree efímero, y el grafo publica el veredicto en el PR
-(las métricas caen en `run_metrics` / `llm_call_metrics`).
+(las métricas caen en `run_metrics` / `llm_call_metrics`). Con
+`DATABASE_URL` definida, los deliveries aceptados persisten en la tabla
+`pending_runs` *antes* del `202` — `delivery_id` es la clave de dedupe,
+el arranque re-despacha las filas que un proceso caído dejó en
+`queued`/`running`, y un fallo de persistencia responde `500` para que
+GitHub reintente en vez de perder la revisión (FR-P4).
 
 ```bash
 GITHUB_TOKEN=ghp_... \
