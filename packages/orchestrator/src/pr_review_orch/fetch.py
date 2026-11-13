@@ -156,8 +156,46 @@ _ORPHAN_PATTERN = (
 )
 
 
+def _proc_cwd(pid: int) -> Path | None:
+    """The process's cwd via /proc, ``None`` when unreadable.
+
+    A ``(deleted)`` suffix (worktree already swept) is stripped so the
+    comparison still attributes the process correctly.
+    """
+    try:
+        link = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
+    return Path(link.removesuffix(" (deleted)"))
+
+
+def _proc_argv(pid: int) -> list[str]:
+    """The process's argv via /proc, ``[]`` when unreadable."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return []
+    return [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+
+
+def _owns(pid: int, root: Path) -> bool:
+    """FR-P20: True iff the process is attributable to a ``qg-*``
+    worktree — cwd inside ``QG_WORKTREE_ROOT``, or an argv referencing
+    one. Unverifiable processes are NOT killed: the sweep must never
+    hit a developer's own ``cargo check``/``tsc`` on the shared host.
+    """
+    cwd = _proc_cwd(pid)
+    if cwd is not None and (cwd == root or root in cwd.parents):
+        return True
+    return any(
+        str(root) in arg or arg.startswith("qg-")
+        for arg in _proc_argv(pid)
+    )
+
+
 def _kill_orphans() -> int:
-    """SIGKILL process groups matching validator/scanner signatures.
+    """SIGKILL process groups matching validator/scanner signatures —
+    but only those attributable to a ``qg-*`` worktree (FR-P20).
 
     Runs at ingress startup, before the worktree sweep: a ``kill -9``'d
     worker must not leak ``tsc``/``cargo``/``osv-scanner`` children
@@ -171,12 +209,16 @@ def _kill_orphans() -> int:
         )
     except (OSError, subprocess.TimeoutExpired):
         return 0  # no procps on this host — sweep dirs anyway
+    root = _worktree_root().resolve()
     killed = 0
     for line in out.stdout.split():
         if not line.strip().isdigit():
             continue
+        pid = int(line)
+        if not _owns(pid, root):
+            continue  # FR-P20: not ours — never kill it
         try:
-            os.killpg(os.getpgid(int(line)), signal.SIGKILL)
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
             killed += 1
         except (ProcessLookupError, PermissionError, OSError):
             continue

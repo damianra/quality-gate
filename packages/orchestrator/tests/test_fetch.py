@@ -152,6 +152,7 @@ def test_sweep_kills_orphan_process_groups(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(
         fetch.subprocess, "run", lambda *a, **k: _Out())
+    monkeypatch.setattr(fetch, "_owns", lambda pid, root: True)
     pgids = {4242: 4242, 4343: 4343}
     monkeypatch.setattr(
         fetch.os, "getpgid", lambda pid: pgids[pid])
@@ -161,6 +162,48 @@ def test_sweep_kills_orphan_process_groups(tmp_path, monkeypatch) -> None:
     assert fetch.sweep_stale_worktrees() == 1
     assert killed == [4242, 4343]       # bad line skipped
     assert not (tmp_path / "qg-stale").exists()
+
+
+def test_sweep_never_kills_decoy_process(tmp_path, monkeypatch) -> None:
+    """FR-P20: a signature-matching process NOT attributable to a
+    worktree (e.g. a dev's own cargo check) is never killed."""
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+
+    class _Out:
+        stdout = "4242\n4343\n"
+
+    monkeypatch.setattr(
+        fetch.subprocess, "run", lambda *a, **k: _Out())
+    # 4242 runs inside a qg-* worktree; 4343 lives in the user's repo.
+    cwds = {4242: tmp_path / "qg-dead" / "pkg",
+            4343: Path("/home/dev/their-repo")}
+    monkeypatch.setattr(fetch, "_proc_cwd", lambda pid: cwds[pid])
+    monkeypatch.setattr(fetch, "_proc_argv",
+                        lambda pid: ["cargo", "check"])
+    monkeypatch.setattr(fetch.os, "getpgid", lambda pid: pid)
+    killed: list[int] = []
+    monkeypatch.setattr(
+        fetch.os, "killpg", lambda pgid, sig: killed.append(pgid))
+    fetch.sweep_stale_worktrees()
+    assert killed == [4242]            # decoy 4343 survived
+
+
+def test_owns_via_argv_when_cwd_unreadable(tmp_path, monkeypatch) -> None:
+    """FR-P20: argv attribution when /proc cwd can't be read."""
+    root = tmp_path.resolve()
+    argv = {1111: ["tsc", "--noEmit", "-p", str(root / "qg-x")],
+            2222: ["tsc", "--noEmit"]}
+    monkeypatch.setattr(fetch, "_proc_cwd", lambda pid: None)
+    monkeypatch.setattr(fetch, "_proc_argv", lambda pid: argv[pid])
+    assert fetch._owns(1111, root)
+    assert not fetch._owns(2222, root)
+
+
+def test_owns_unverifiable_is_not_ours(tmp_path, monkeypatch) -> None:
+    """FR-P20: when neither cwd nor argv can be read, we don't kill."""
+    monkeypatch.setattr(fetch, "_proc_cwd", lambda pid: None)
+    monkeypatch.setattr(fetch, "_proc_argv", lambda pid: [])
+    assert not fetch._owns(9999, tmp_path.resolve())
 
 
 def test_sweep_survives_missing_pgrep(tmp_path, monkeypatch) -> None:
