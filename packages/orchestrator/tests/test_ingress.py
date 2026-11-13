@@ -183,15 +183,17 @@ def test_run_once_removes_worktree(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         ingress.fetch, "clone_pr", lambda *_a: worktree
     )
-    seen: list[tuple[str, int]] = []
+    seen: list[tuple[str, int, str]] = []
     monkeypatch.setattr(
         ingress.graph, "run_pr_review",
-        lambda path, pr: seen.append((path, pr)),
+        lambda path, pr, repo_slug=None: seen.append((path, pr, repo_slug)),
     )
     event = {"repo": "a/b", "pr_number": 3,
              "clone_url": "u", "head_sha": "s"}
     asyncio.run(ingress._run_once(event))
-    assert seen == [(str(worktree), 3)]
+    # FR-P1: the run carries the payload's owner/repo identity, not the
+    # ephemeral worktree dir — checkpoints/metrics stay stable per PR.
+    assert seen == [(str(worktree), 3, "a/b")]
     assert not worktree.exists()  # INV-2: dir cleaned like pgids
 
 
@@ -232,3 +234,11 @@ def test_drain_coalesces_pending(monkeypatch) -> None:
     asyncio.run(ingress._drain(key, first))
     assert runs == ["old", "new"]
     assert key not in ingress._ACTIVE
+
+
+def test_thread_id_uses_repo_slug_not_worktree() -> None:
+    """FR-P1: ephemeral worktree dirs must not leak into the thread id —
+    two runs of the same PR share a checkpoint thread (NFR-3)."""
+    tid = ingress.graph._thread_id("acme/widgets", 7)
+    assert tid == "pr-review/acme/widgets/7"
+    assert "qg-" not in tid

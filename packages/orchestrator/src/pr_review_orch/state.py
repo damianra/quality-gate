@@ -14,6 +14,7 @@ from typing import Annotated, Any, TypedDict
 class PRReviewState(TypedDict, total=False):
     # Run inputs, provided by the CLI entry point (env vars / args)
     repo_path: str
+    repo_slug: str  # owner/repo identity: thread id + run metrics (FR-P1)
     pr_number: int
     dry_run: bool
 
