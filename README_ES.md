@@ -305,7 +305,9 @@ para monitoreo (distinto del liveness `/healthz`), y
 golpea tras cada run completado — el silencio más allá del intervalo
 del monitor significa que el servicio murió. Los runs fallidos se
 consultan con `SELECT * FROM run_metrics WHERE status <> 'ok'` y
-`SELECT * FROM pending_runs WHERE status = 'failed'`.
+`SELECT * FROM pending_runs WHERE status = 'failed'`. Los backups de
+Postgres (cron de pg_dump + runbook de restore) están en
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17).
 
 ## CI
 
