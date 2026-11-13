@@ -309,6 +309,117 @@ def test_run_once_survives_status_failure(
     assert not worktree.exists()
 
 
+def test_enqueue_persists_before_dispatch(client, monkeypatch) -> None:
+    """FR-P4: with a DSN the delivery is durable BEFORE the 202."""
+    monkeypatch.setattr(ingress.run_queue, "enabled", lambda: True)
+    inserted: list[str] = []
+    monkeypatch.setattr(
+        ingress.run_queue, "enqueue",
+        lambda ev: inserted.append(ev["delivery_id"]) or True)
+    assert _post(client, _payload(), delivery="d-9").status_code == 202
+    assert inserted == ["d-9"]
+    assert _wait(lambda: client["recorded"])
+    assert client["recorded"][0][1]["delivery_id"] == "d-9"
+
+
+def test_enqueue_db_duplicate_skipped(client, monkeypatch) -> None:
+    """FR-P4: PK conflict -> 200, never reaches the dispatch queue."""
+    monkeypatch.setattr(ingress.run_queue, "enabled", lambda: True)
+    monkeypatch.setattr(
+        ingress.run_queue, "enqueue", lambda ev: False)
+    assert _post(client, _payload()).status_code == 200
+    assert client["recorded"] == []
+
+
+def test_enqueue_db_error_returns_500(client, monkeypatch) -> None:
+    """FR-P4: a delivery we cannot durably accept is not acknowledged —
+    GitHub retries the 500 instead of us dropping it silently."""
+    monkeypatch.setattr(ingress.run_queue, "enabled", lambda: True)
+
+    def boom(ev):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ingress.run_queue, "enqueue", boom)
+    assert _post(client, _payload()).status_code == 500
+    assert client["recorded"] == []
+
+
+def test_startup_requeues_unfinished_deliveries(monkeypatch) -> None:
+    """FR-P4: queued/running rows from a crashed process re-dispatch."""
+    monkeypatch.setattr(config, "GITHUB_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(config, "ALLOWED_REPOS", ["acme/*"])
+    monkeypatch.setattr(
+        ingress.fetch, "sweep_stale_worktrees", lambda: 0)
+    recovered = {
+        "delivery_id": "old-1", "repo": "acme/widgets",
+        "pr_number": 5, "head_sha": "s", "clone_url": "u",
+    }
+    monkeypatch.setattr(
+        ingress.run_queue, "recover", lambda: [recovered])
+    recorded: list[tuple[str, dict]] = []
+
+    async def fake_drain(sem, key, event):
+        recorded.append((key, event))
+
+    monkeypatch.setattr(ingress, "_drain_guarded", fake_drain)
+    ingress._ACTIVE.clear()
+    with TestClient(ingress.app):
+        assert _wait(lambda: recorded)
+    assert recorded == [("acme/widgets#5", recovered)]
+
+
+def test_run_once_marks_running_then_done(
+    monkeypatch, tmp_path, _stub_status
+) -> None:
+    """FR-P4: pending_runs sees queued -> running -> done."""
+    marks: list[tuple] = []
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_running",
+        lambda d: marks.append(("running", d)))
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_done",
+        lambda d: marks.append(("done", d)))
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_failed",
+        lambda d, e: marks.append(("failed", d, e)))
+    worktree = tmp_path / "qg-run"
+    worktree.mkdir()
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr", lambda *_a: worktree)
+    monkeypatch.setattr(
+        ingress.graph, "run_pr_review",
+        lambda *_a, **_k: {"verdict": {"approve": True}})
+    event = {"repo": "a/b", "pr_number": 3, "clone_url": "u",
+             "head_sha": "s", "delivery_id": "d-1"}
+    asyncio.run(ingress._run_once(event))
+    assert marks == [("running", "d-1"), ("done", "d-1")]
+
+
+def test_run_once_marks_failed_on_crash(
+    monkeypatch, tmp_path, _stub_status
+) -> None:
+    """FR-P4/FR-P2: a crashed run leaves status=failed + error."""
+    marks: list[tuple] = []
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_running",
+        lambda d: marks.append(("running", d)))
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_done",
+        lambda d: marks.append(("done", d)))
+    monkeypatch.setattr(
+        ingress.run_queue, "mark_failed",
+        lambda d, e: marks.append(("failed", d, e)))
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr",
+        lambda *_a: (_ for _ in ()).throw(RuntimeError("clone failed")))
+    event = {"repo": "a/b", "pr_number": 3, "clone_url": "u",
+             "head_sha": "s", "delivery_id": "d-1"}
+    asyncio.run(ingress._run_once(event))
+    assert marks[0] == ("running", "d-1")
+    assert marks[1][0:2] == ("failed", "d-1")
+    assert "clone failed" in marks[1][2]
+
+
 def test_drain_coalesces_pending(monkeypatch) -> None:
     """A burst on one PR coalesces: only the latest pending re-runs."""
     runs: list[dict] = []

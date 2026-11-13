@@ -198,7 +198,12 @@ The stack can also run as a service instead of per-invocation: nginx
 exposes ONE public port, the ingress verifies and queues GitHub
 `pull_request` webhooks, each accepted event clones the PR head into an
 ephemeral worktree, and the graph posts the verdict on the PR (metrics
-land in `run_metrics` / `llm_call_metrics`).
+land in `run_metrics` / `llm_call_metrics`). With `DATABASE_URL` set,
+accepted deliveries persist to a `pending_runs` table *before* the
+`202` — `delivery_id` is the dedupe key, startup re-dispatches rows a
+crashed process left `queued`/`running`, and a DB-persist failure
+answers `500` so GitHub retries instead of the review vanishing
+(FR-P4).
 
 ```bash
 GITHUB_TOKEN=ghp_... \

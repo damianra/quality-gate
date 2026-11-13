@@ -27,7 +27,7 @@ from fastapi import FastAPI, Request, Response
 
 from quality_gate_mcp import tools as mcp_tools
 
-from . import config, fetch, graph
+from . import config, fetch, graph, run_queue
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +87,33 @@ def _extract_event(payload: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _enqueue(delivery: str, event: dict[str, Any]) -> str:
-    """Dedupe + queue a reviewable event; returns 'enqueued'|'duplicate'."""
-    if delivery and delivery in _SEEN_DELIVERIES:
-        return "duplicate"
-    if delivery:
-        _SEEN_DELIVERIES.add(delivery)
-        if len(_SEEN_DELIVERIES) > _MAX_DELIVERY_IDS:
-            _SEEN_DELIVERIES.pop()  # bounded cache; eviction is arbitrary
+    """Dedupe + queue a reviewable event.
+
+    FR-P4: with ``DATABASE_URL`` set, the event is persisted to
+    ``pending_runs`` before dispatch — ``delivery_id`` is the dedupe
+    primary key, so it survives restarts. A persist failure returns
+    ``"error"`` -> 500 rather than acknowledging a delivery we could
+    not durably accept. Without a DSN the in-memory dedupe path keeps
+    the FR-O21 semantics (not durable — local dev only).
+    """
+    import uuid
+    # GitHub always sends X-GitHub-Delivery; synthesize one when absent
+    # so pending_runs still gets a stable primary key.
+    event["delivery_id"] = delivery or f"syn-{uuid.uuid4()}"
+    if run_queue.enabled():
+        try:
+            if not run_queue.enqueue(event):
+                return "duplicate"
+        except Exception:
+            logger.exception("pending_runs persist failed")
+            return "error"
+    else:
+        if delivery and delivery in _SEEN_DELIVERIES:
+            return "duplicate"
+        if delivery:
+            _SEEN_DELIVERIES.add(delivery)
+            if len(_SEEN_DELIVERIES) > _MAX_DELIVERY_IDS:
+                _SEEN_DELIVERIES.pop()  # bounded; eviction arbitrary
     assert _QUEUE is not None, "queue exists once the app is running"
     _QUEUE.put_nowait(event)
     return "enqueued"
@@ -122,7 +142,9 @@ async def _post_status(event: dict[str, Any], state: str,
 async def _run_once(event: dict[str, Any]) -> None:
     """Clone -> review -> rmtree for one event (INV-2 directory cleanup)."""
     worktree = None
+    delivery_id = event.get("delivery_id", "")
     try:
+        await asyncio.to_thread(run_queue.mark_running, delivery_id)
         # FR-P8: gate the delivery sha — pending up front so the PR shows
         # the required check while the review runs.
         await _post_status(event, "pending", "review in progress")
@@ -139,10 +161,14 @@ async def _run_once(event: dict[str, Any]) -> None:
             "success" if approve else "failure",
             "review approved" if approve else "changes required",
         )
-    except Exception:
+        await asyncio.to_thread(run_queue.mark_done, delivery_id)
+    except Exception as exc:
         logger.exception(
             "run failed for %s#%s", event["repo"], event["pr_number"]
         )
+        await asyncio.to_thread(
+            run_queue.mark_failed, delivery_id,
+            f"{type(exc).__name__}: {exc}")
         await _post_status(event, "error", "review failed — see logs")
     finally:
         if worktree is not None:
@@ -185,6 +211,10 @@ async def _lifespan(_app: FastAPI):
     global _QUEUE
     _QUEUE = asyncio.Queue()
     fetch.sweep_stale_worktrees()
+    # FR-P4: requeue deliveries a previous process accepted but never
+    # finished (queued) or died inside (running).
+    for event in await asyncio.to_thread(run_queue.recover):
+        _QUEUE.put_nowait(event)
     worker = asyncio.create_task(_worker(_QUEUE))
     try:
         yield
@@ -227,7 +257,10 @@ async def github_webhook(request: Request) -> Response:
         logger.info("repo not allowed, dropped: %s", event["repo"])
         return Response(status_code=403)
     status = _enqueue(request.headers.get("X-GitHub-Delivery", ""), event)
-    return Response(status_code=202 if status == "enqueued" else 200)
+    # "error" -> 500: GitHub retries; we never 202 a delivery that could
+    # not be durably accepted (FR-P4).
+    code = {"enqueued": 202, "duplicate": 200, "error": 500}[status]
+    return Response(status_code=code)
 
 
 def main() -> None:
