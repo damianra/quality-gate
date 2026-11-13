@@ -94,6 +94,7 @@ curl -fsS https://<QG_PUBLIC_HOST>/readyz
 
 ```bash
 export QG_IMAGE_TAG=<previous-commit-sha>
+docker compose -f compose.yaml -f compose.prod.yaml --profile tls pull  # no-op if already local
 docker compose -f compose.yaml -f compose.prod.yaml --profile tls up -d
 ```
 
