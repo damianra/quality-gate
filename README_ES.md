@@ -314,7 +314,10 @@ del monitor significa que el servicio murió. Los runs fallidos se
 consultan con `SELECT * FROM run_metrics WHERE status <> 'ok'` y
 `SELECT * FROM pending_runs WHERE status = 'failed'`. Los backups de
 Postgres (cron de pg_dump + runbook de restore) están en
-[docs/backup-restore.md](docs/backup-restore.md) (FR-P17). Al arrancar,
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17), y los
+procedimientos de levantamiento/monitoreo/recuperación en una sola VM
+están consolidados en el [runbook de operación](docs/ops-runbook.md)
+(FR-P22). Al arrancar,
 el ingress loguea un reporte doctor de qué binarios validador/scanner
 resolvió la imagen (FR-P13); todas las imágenes base y de compose están
 pineadas por digest y las actualiza Dependabot, y `supply-chain.yml`

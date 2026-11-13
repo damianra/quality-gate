@@ -295,7 +295,9 @@ service is dead. Failed runs are queryable via
 `SELECT * FROM run_metrics WHERE status <> 'ok'` and
 `SELECT * FROM pending_runs WHERE status = 'failed'`. Postgres backups
 (pg_dump cron + restore runbook) are covered in
-[docs/backup-restore.md](docs/backup-restore.md) (FR-P17). At startup
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17), and the
+single-machine bring-up/monitoring/recovery procedures are consolidated
+in the [ops runbook](docs/ops-runbook.md) (FR-P22). At startup
 the ingress logs a doctor report of which validator/scanner binaries
 the image resolved (FR-P13); all base and compose images are pinned by
 digest and bumped by Dependabot, and `supply-chain.yml` builds + trivy
