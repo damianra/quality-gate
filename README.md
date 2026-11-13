@@ -120,7 +120,14 @@ comment; a PR is `pending` until a marker matching its `head:<sha7>` exists.
 Copy `.env.example` to `.env` (gitignored) and fill in the values — it lists
 every variable below with defaults. `compose.yaml` picks it up automatically.
 
-- `GITHUB_TOKEN` — env-only, never logged/embedded (required)
+- `GITHUB_TOKEN` — env-only, never logged/embedded (required unless
+  the GitHub App path is used)
+- `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` /
+  `GITHUB_APP_INSTALLATION_ID` — recommended for production (FR-P18):
+  the service mints 1h installation tokens at run time instead of a
+  long-lived PAT; comments/statuses are authored by the app bot with
+  least-privilege permissions, and onboarding a repo is "install the
+  app". The PAT stays supported for local runs.
 - `DATABASE_URL` — Postgres checkpointer DSN (optional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — orchestrator inputs
 - `QG_*` — timeouts and scanner thresholds (see `config.py` files)
