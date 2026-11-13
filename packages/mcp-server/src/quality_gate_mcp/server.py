@@ -1,4 +1,4 @@
-"""FastMCP server exposing the quality-gate tools.
+"""MCP server exposing the quality-gate tools.
 
 Default transport is stdio (for IDE clients / subprocess spawning);
 ``--transport sse`` exposes an HTTP endpoint for the compose stack or
@@ -14,13 +14,13 @@ from __future__ import annotations
 import argparse
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from . import tools
 
 logger = logging.getLogger("quality-gate-mcp")
 
-mcp = FastMCP("quality-gate-mcp")
+mcp = MCPServer("quality-gate-mcp")
 
 # Register every tool function. Registration is explicit so `tools.py`
 # remains importable (and unit-testable) without the MCP runtime.

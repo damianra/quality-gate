@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Stateless MCP server exposing deterministic dev tools (git, GitHub API, ripgrep) for PR review"
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.2.0,<3",
+    "mcp>=2.0,<3",
     "httpx>=0.27",
     "pydantic>=2.0",
     # FR-P18: RS256 JWTs for GitHub App installation tokens.
