@@ -52,6 +52,41 @@ def test_spawn_never_uses_shell(tmp_path):
     assert not (tmp_path / "pwned").exists()
 
 
+def test_spawn_env_is_scrubbed(tmp_path, monkeypatch):
+    """FR-P11: spawned children see an allowlist env, never secrets.
+
+    ``/proc/<pid>/environ`` invariant: a validator running PR-controlled
+    code must not find GITHUB_TOKEN / DATABASE_URL / webhook secrets in
+    its environment; PATH/HOME still resolve.
+    """
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-tok")
+    monkeypatch.setenv("DATABASE_URL", "postgres://x")
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "whsec")
+    res = spawn_process(
+        str(tmp_path), "python3",
+        ["-c",
+         "import os\n"
+         "for k in ('GITHUB_TOKEN', 'DATABASE_URL',"
+         " 'GITHUB_WEBHOOK_SECRET', 'PATH', 'HOME'):\n"
+         "    print(k, 'set' if os.environ.get(k) else 'unset')"])
+    env_lines = dict(l.split() for l in res["stdout"].splitlines())
+    assert env_lines["GITHUB_TOKEN"] == "unset"
+    assert env_lines["DATABASE_URL"] == "unset"
+    assert env_lines["GITHUB_WEBHOOK_SECRET"] == "unset"
+    assert env_lines["PATH"] == "set"
+    assert env_lines["HOME"] == "set"
+
+
+def test_spawn_explicit_env_passthrough(tmp_path, monkeypatch):
+    """FR-P11: an explicit env (git auth headers) bypasses scrubbing."""
+    from quality_gate_mcp import git_ops
+    res = git_ops.spawn_tracked(
+        str(tmp_path), "python3",
+        ["-c", "import os; print(os.environ.get('MARKER', 'unset'))"],
+        env={"PATH": os.environ["PATH"], "MARKER": "yes"})
+    assert res["stdout"].strip() == "yes"
+
+
 def test_search_code_rg(tmp_path):
     (tmp_path / "a.ts").write_text("const needle = 1;\nconst hay = 2;\n")
     pytest.importorskip("subprocess")

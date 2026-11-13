@@ -944,20 +944,25 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
-def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
+def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
     """Pick the cheapest available validation commands per ecosystem.
 
     FR-L2 detector pattern (mirrors ``_audit_command``): every ecosystem
     present in the changed files contributes its validator when the
     toolchain is installed; a polyglot PR can get several commands.
+
+    Each entry is ``(argv, executes_pr_code)`` — FR-P12: *executing*
+    validators (cargo check runs build.rs/proc-macros, go vet may build
+    cgo) are gated by ``config.EXEC_VALIDATORS`` upstream; *syntax-only*
+    validators (tsc --noEmit, node --check, compile()) never run PR code.
     """
-    cmds: list[list[str]] = []
+    cmds: list[tuple[list[str], bool]] = []
     suffixes = {Path(f).suffix.lower() for f in files}
 
     # JS/TS: project-local tsc wins; otherwise per-file node --check.
     local_tsc = repo / "node_modules" / ".bin" / "tsc"
     if local_tsc.exists() and (repo / "tsconfig.json").exists():
-        cmds.append([str(local_tsc), "--noEmit"])
+        cmds.append(([str(local_tsc), "--noEmit"], False))
     elif shutil.which("node"):
         js_exts = {".js", ".jsx", ".mjs", ".cjs"}
         js_files = [
@@ -966,7 +971,7 @@ def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
         ][:20]
         for f in js_files:
             if (repo / f).exists():
-                cmds.append(["node", "--check", f])
+                cmds.append((["node", "--check", f], False))
 
     # Python: stdlib compile() syntax check — writes no __pycache__
     # artifacts into the reviewed checkout (compileall/py_compile do).
@@ -976,22 +981,23 @@ def _qa_commands(repo: Path, files: list[str]) -> list[list[str]]:
     ][:20]
     python = shutil.which("python3") or shutil.which("python")
     if py_files and python:
-        cmds.append([
+        cmds.append(([
             python, "-c",
             "import sys\n"
             "for f in sys.argv[1:]:\n"
             "    with open(f) as fh:\n"
             "        compile(fh.read(), f, 'exec')",
             *py_files,
-        ])
+        ], False))
 
     # Go/Rust: module-level check when the manifest sits at the root.
+    # These EXECUTE PR-controlled code (build.rs, proc-macros, cgo).
     if ".go" in suffixes and (repo / "go.mod").exists() \
             and shutil.which("go"):
-        cmds.append(["go", "vet", "./..."])
+        cmds.append((["go", "vet", "./..."], True))
     if ".rs" in suffixes and (repo / "Cargo.toml").exists() \
             and shutil.which("cargo"):
-        cmds.append(["cargo", "check"])
+        cmds.append((["cargo", "check"], True))
     return cmds
 
 
@@ -1002,12 +1008,29 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
     pgids: list[int] = []
     proc_metrics: list[dict[str, Any]] = []
 
-    commands = _qa_commands(repo, files)
-    if not commands:
+    selected = _qa_commands(repo, files)
+    # FR-P12: executing validators are skipped when the deployment does
+    # not allow running PR-controlled code (service mode default).
+    commands = [
+        argv for argv, executes in selected
+        if not executes or config.EXEC_VALIDATORS
+    ]
+    skipped = [
+        " ".join(argv) for argv, executes in selected
+        if executes and not config.EXEC_VALIDATORS
+    ]
+    if skipped:
         findings.append(_finding(
-            "qa", "info", "No validators available",
-            "No validator toolchain detected for the changed files' "
-            "ecosystems; structural checks skipped."))
+            "qa", "info", "Executing validators skipped",
+            "PR-controlled code execution is disabled in this "
+            "deployment (QG_EXEC_VALIDATORS=0): "
+            f"{', '.join(skipped)}."))
+    if not commands:
+        if not skipped:
+            findings.append(_finding(
+                "qa", "info", "No validators available",
+                "No validator toolchain detected for the changed files' "
+                "ecosystems; structural checks skipped."))
         # FR-O16: the LLM pass still runs — validation-gap analysis does
         # not depend on local validators being installed.
         enrich = _llm_enrich("qa", QA_PROMPT, state,

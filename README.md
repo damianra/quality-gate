@@ -244,7 +244,10 @@ worktree is removed after its run plus a startup sweep. The
 `mcp-server` SSE service is behind a `debug` profile — its
 `spawn_process` tool is unauthenticated command execution and must
 never be public. All service-mode containers restart automatically
-(`unless-stopped`).
+(`unless-stopped`). Validators run in a scrubbed environment — secrets
+never reach a spawned child's env (FR-P11) — and validators that would
+execute PR-controlled code (`cargo check`, `go vet`) are disabled by
+default in service mode (`QG_EXEC_VALIDATORS=0`, FR-P12).
 
 ## CI
 

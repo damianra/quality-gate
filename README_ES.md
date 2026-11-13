@@ -256,7 +256,11 @@ worktree se borra tras su run más un sweep de arranque. El servicio SSE
 de `mcp-server` queda detrás del profile `debug` — su tool
 `spawn_process` es ejecución de comandos sin autenticación y nunca debe
 ser pública. Todos los contenedores del modo servicio reinician
-automáticamente (`unless-stopped`).
+automáticamente (`unless-stopped`). Los validadores corren con un
+entorno depurado — los secretos nunca llegan al env de un subproceso
+(FR-P11) — y los validadores que ejecutarían código controlado por el
+PR (`cargo check`, `go vet`) están deshabilitados por defecto en modo
+servicio (`QG_EXEC_VALIDATORS=0`, FR-P12).
 
 ## CI
 

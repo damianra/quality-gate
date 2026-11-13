@@ -76,6 +76,10 @@ services:
       QG_CLONE_TIMEOUT: ${QG_CLONE_TIMEOUT:-300}
       QG_MAX_WORKTREE_BYTES: ${QG_MAX_WORKTREE_BYTES:-2147483648}
       QG_MAX_CONCURRENT_RUNS: ${QG_MAX_CONCURRENT_RUNS:-2}
+      # FR-P12: service mode reviews untrusted checkouts — validators that
+      # run PR-controlled code (cargo check -> build.rs, go vet -> cgo)
+      # stay off unless the operator explicitly opts in.
+      QG_EXEC_VALIDATORS: ${QG_EXEC_VALIDATORS:-0}
       QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-ollama}
       QG_LLM_MODEL: ${QG_LLM_MODEL:-qwen3:8b}
       # All four roles default to local ollama/qwen3:8b — each is an
