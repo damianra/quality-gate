@@ -176,6 +176,40 @@ def _normalize_usage(api: str, usage: dict[str, Any]) -> dict[str, int]:
 # "max_tokens") and Anthropic `stop_reason` ("max_tokens").
 _TRUNCATION_REASONS = {"length", "max_tokens"}
 
+# FR-P26: Anthropic has no schema-less "json_object" mode — structured
+# outputs (output_config.format, GA on Claude 4.5+) require a schema.
+# This is the findings contract from agents._LLM_OUTPUT_CONTRACT,
+# wrapped in an object because the API requires an object root;
+# agents._llm_findings already accepts a {"findings": [...]} wrapper.
+_ANTHROPIC_FINDINGS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "enum": ["info", "warning", "blocker"],
+                    },
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "file": {"type": ["string", "null"]},
+                },
+                "required": ["severity", "title", "detail"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["findings"],
+    "additionalProperties": False,
+}
+
+# anthropic-version that understands output_config.format; only sent
+# on requests that carry it — plain calls stay on the pinned baseline.
+_ANTHROPIC_STRUCTURED_VERSION = "2026-10-21"
+
 
 def _parse_response(api: str, data: dict[str, Any]) -> dict[str, Any]:
     """Extract text, usage and truncation status from a raw API response.
@@ -345,6 +379,14 @@ class LLMConfig:
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
+        if self.json_mode:
+            headers["anthropic-version"] = _ANTHROPIC_STRUCTURED_VERSION
+            payload["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": _ANTHROPIC_FINDINGS_SCHEMA,
+                }
+            }
         return f"{self.base_url}/v1/messages", headers, payload
 
     # ------------------------------------------------------------------ #
