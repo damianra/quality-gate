@@ -142,7 +142,20 @@ a run.
 
 ### LLM provider (optional)
 
-The review is deterministic by default. Setting `QG_LLM_PROVIDER` enables
+The review is deterministic by default. Three deployment profiles are
+supported (FR-P19), selected per role via `QG_LLM_PROVIDER*`:
+
+- **`deterministic`** — all providers unset: zero LLM calls. Baseline
+  for CPU-only hosts and for code that must not leave the perimeter.
+- **`api`** — API providers per role; the recommended profile on
+  CPU-only hosts when code egress is allowed (~10–11k input tokens per
+  specialist call, ~$0.01–0.20/review by model tier).
+- **`local`** — ollama; only where the host has a GPU or where
+  multi-minute per-call latency is acceptable. On CPU-only hosts it is
+  **not viable for interactive review**: 8B-class reasoning yields
+  ~3–8 min/call → `QG_LLM_TIMEOUT` hits and degraded findings.
+
+Setting `QG_LLM_PROVIDER` enables
 LLM-backed enrichment in the orchestrator; keys stay in env vars only
 (`QG_LLM_API_KEY` or the provider's canonical variable). The `review`,
 `security` and `qa` specialists each call their role config over the
@@ -205,15 +218,17 @@ docker compose --profile tls up -d
 # before merging") so the verdict actually blocks merges — the token
 # needs repo:status (classic) or Commit statuses: write (fine-grained).
 
-# LLM: the ingress defaults to a HOST ollama (http://localhost:11434,
-# reached via host.docker.internal) so the model gets full machine
-# resources — just `ollama serve` + `ollama pull qwen3:8b` on the host.
-# Prompts >4k hit ollama's num_ctx=4096 default — see the ctx-tuning
-# note in docs/local-webhook-setup.md for the one-command fix.
-# Only if the host has no ollama, fall back to the container:
+# LLM profile (FR-P19): the stack defaults to DETERMINISTIC — no LLM
+# calls. For `api`, export QG_LLM_PROVIDER(+key) per .env.example. For
+# `local` (GPU host only), point the ingress at a HOST ollama
+# (http://localhost:11434 via host.docker.internal) — `ollama serve` +
+# `ollama pull qwen3:8b` on the host — or fall back to the container:
 docker compose --profile llm up -d ollama
 docker compose exec ollama ollama pull qwen3:8b
-QG_LLM_BASE_URL=http://ollama:11434/v1 docker compose up -d ingress
+QG_LLM_PROVIDER=ollama QG_LLM_BASE_URL=http://ollama:11434/v1 \
+docker compose up -d ingress
+# Prompts >4k hit ollama's num_ctx=4096 default — see the ctx-tuning
+# note in docs/local-webhook-setup.md for the one-command fix.
 ```
 
 For a **local webhook test** (no compose, no public IP) bring the
