@@ -123,7 +123,8 @@ def test_detail_block_empty_without_calls() -> None:
 
 def _full_state() -> dict:
     return {
-        "repo_path": "/tmp/quality-gate",
+        "repo_path": "/var/quality-gate/worktrees/qg-abc123",
+        "repo_slug": "acme/widgets",
         "pr_number": 7,
         "head_sha": "abc1234",
         "dry_run": True,
@@ -159,7 +160,7 @@ def test_run_row_maps_task_fields() -> None:
     (run_id, repo, pr, sha, dry, _dur, approve, blockers, warnings, infos,
      calls, prompt, completion, total, nodes, procs, report) = row
     assert run_id == "pr-review/quality-gate/7"
-    assert repo == "/tmp/quality-gate" and pr == 7 and sha == "abc1234"
+    assert repo == "acme/widgets" and pr == 7 and sha == "abc1234"
     assert dry is True and approve is True
     assert (blockers, warnings, infos) == (0, 1, 2)
     assert calls == 2 and prompt == 900 and completion == 120
@@ -265,6 +266,8 @@ def test_persist_run_writes_rows(monkeypatch) -> None:
 
     run_insert = conn.cur.calls[6]
     assert run_insert[2][0] == "run-1"      # first param is run_id
+    # FR-P1: repo column is the slug, not the ephemeral worktree path.
+    assert run_insert[2][1] == "acme/widgets"
     first_call_insert = conn.cur.calls[7][2]
     assert first_call_insert[6] == "openrouter"
     assert conn.committed

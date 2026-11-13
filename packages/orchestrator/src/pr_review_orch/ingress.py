@@ -105,7 +105,8 @@ async def _run_once(event: dict[str, Any]) -> None:
             fetch.clone_pr, event["clone_url"], event["head_sha"]
         )
         await asyncio.to_thread(
-            graph.run_pr_review, str(worktree), event["pr_number"]
+            graph.run_pr_review, str(worktree), event["pr_number"],
+            repo_slug=event["repo"],
         )
     except Exception:
         logger.exception(

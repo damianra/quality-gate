@@ -15,7 +15,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from quality_gate_mcp import tools as mcp_tools
+from quality_gate_mcp import git_ops, tools as mcp_tools
 
 from . import agents, cleanup, config, metrics, scope
 from .state import PRReviewState
@@ -238,9 +238,14 @@ def build_graph(checkpointer: Any | None = None) -> Any:
 # --------------------------------------------------------------------------- #
 
 
-def _thread_id(repo_path: str, pr_number: int) -> str:
-    slug = repo_path.rstrip("/").rsplit("/", 1)[-1]
-    return f"pr-review/{slug}/{pr_number}"
+def _thread_id(repo_slug: str, pr_number: int) -> str:
+    """Checkpoint thread id keyed by repo identity, not by directory.
+
+    FR-P1: in service mode ``repo_path`` is an ephemeral ``qg-*`` worktree,
+    so deriving the slug from the path made every run a new thread and
+    broke resumability (NFR-3). The slug travels explicitly instead.
+    """
+    return f"pr-review/{repo_slug}/{pr_number}"
 
 
 def _invoke(graph: Any, state: PRReviewState, run_config: dict[str, Any]) -> dict[str, Any]:
@@ -259,10 +264,20 @@ def _invoke(graph: Any, state: PRReviewState, run_config: dict[str, Any]) -> dic
             logger.exception("finally-cleanup failed")
 
 
-def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False) -> dict[str, Any]:
-    """Execute the review graph for one PR and return the final state."""
+def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False,
+                  repo_slug: str | None = None) -> dict[str, Any]:
+    """Execute the review graph for one PR and return the final state.
+
+    ``repo_slug`` is the ``owner/repo`` identity used for the checkpoint
+    thread id and run metrics; when omitted it is resolved from the
+    checkout's ``origin`` remote (CLI/Action path). The ingress passes
+    the slug from the webhook payload so ephemeral worktrees keep a
+    stable identity (FR-P1).
+    """
+    slug = repo_slug or git_ops.get_remote_slug(repo_path)
     initial: PRReviewState = {
         "repo_path": repo_path,
+        "repo_slug": slug,
         "pr_number": pr_number,
         "dry_run": dry_run,
         "findings": [],
@@ -273,7 +288,7 @@ def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False) -> dict
         "llm_calls": [],
         "processes": [],
     }
-    run_config = {"configurable": {"thread_id": _thread_id(repo_path, pr_number)}}
+    run_config = {"configurable": {"thread_id": _thread_id(slug, pr_number)}}
 
     if config.DATABASE_URL:
         from langgraph.checkpoint.postgres import PostgresSaver

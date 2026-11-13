@@ -256,7 +256,9 @@ def _run_row(state: dict[str, Any], run_id: str) -> tuple[Any, ...]:
     llm = report["llm"]
     return (
         run_id,
-        state.get("repo_path", ""),
+        # FR-P1: repo identity is the owner/repo slug, never the
+        # (possibly ephemeral) worktree path.
+        state.get("repo_slug") or state.get("repo_path", ""),
         int(state.get("pr_number", 0)),
         state.get("head_sha", ""),
         bool(state.get("dry_run", False)),
