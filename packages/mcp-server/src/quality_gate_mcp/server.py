@@ -46,10 +46,14 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
-    if args.transport == "sse":
-        mcp.settings.host = args.host
-        mcp.settings.port = args.port
-    mcp.run(transport=args.transport)
+    # mcp 2.x: host/port are run() kwargs forwarded to the transport
+    # runner — settings no longer carries them.
+    transport_kwargs = (
+        {"host": args.host, "port": args.port}
+        if args.transport == "sse"
+        else {}
+    )
+    mcp.run(transport=args.transport, **transport_kwargs)
 
 
 if __name__ == "__main__":

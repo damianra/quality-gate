@@ -25,7 +25,7 @@ invariant: **no spawned process may outlive a review run**.
 ### 2.1 Repository layout
 
 ```text
-packages/mcp-server     quality-gate-mcp      — stateless FastMCP server
+packages/mcp-server     quality-gate-mcp      — stateless MCP server
 packages/orchestrator   pr-review-orchestrator — stateful LangGraph brain
 .github/workflows       path-filtered CI + pr-review trigger
 .devin/workflows        local sub-agent workflows (/pr-review)
