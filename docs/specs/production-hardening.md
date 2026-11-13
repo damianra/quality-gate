@@ -1,11 +1,13 @@
 # Spec — production hardening (service mode)
 
-**Status:** proposed — gap-analysis driven; implementation split across
-ordered PRs (§5). **Scope:** amends SPEC.md FR-O19..O22 (service
-ingress/queue), FR-O5/FR-L2 (QA validators), FR-O9 (runner signature),
-§7 (configuration surface), §8 (delivery surfaces) and §9 (testing).
-Requirement IDs `FR-P*`/`NFR-P*` are stable; tests and PRs reference
-them.
+**Status:** implemented — all FR-P1..P19 landed via PRs #35–#52
+(FR-P1 #35 · FR-P9/P10 #36 · FR-P11/P12 #37 · FR-P8 #38 · FR-P19 #39 ·
+FR-P2 #40 · FR-P4 #41 · FR-P5/P6/P7 #42 · FR-P3 #43 · FR-P15/P16 #44 ·
+FR-P17 #45 · FR-P13/P14 #46 · FR-P18 #52). **Scope:** amends SPEC.md
+FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
+FR-O9 (runner signature), §7 (configuration surface), §8 (delivery
+surfaces) and §9 (testing). Requirement IDs `FR-P*`/`NFR-P*` are
+stable; tests and PRs reference them.
 
 ## 1. Motivation
 
