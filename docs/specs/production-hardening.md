@@ -2,7 +2,8 @@
 
 **Status:** implemented — FR-P1..P19 via PRs #35–#52, steady-state
 follow-ups FR-P20 #55 · FR-P22 #56 · FR-P21 #57. Phase-3 deployment
-readiness FR-P23..P30 specced below, implementation pending.
+readiness implemented: FR-P23 #63 · FR-P24 #64 · FR-P25 #65 ·
+FR-P26 #66 · FR-P27 #67 · FR-P28 #68 · FR-P29 #69 · FR-P30 #70.
 **Scope:** amends SPEC.md
 FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
 FR-O9 (runner signature), §7 (configuration surface), §8 (delivery

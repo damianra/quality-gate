@@ -75,7 +75,46 @@ mcp-server *only when* the `debug` profile is up).
 | High queue depth | `QG_MAX_CONCURRENT_RUNS` bounds parallelism; bursts coalesce per PR. A sustained backlog means clone or LLM latency — check `run_metrics.duration_s` trends. |
 | Validators unexpectedly skipped | Read the `doctor` startup log — the binary is missing from the image (expected for `go`/`cargo`: executing validators ship but are gated by `QG_EXEC_VALIDATORS` in service mode, FR-P12). |
 
-## 5. Security posture (what NOT to do)
+## 5. Updates and rollback (FR-P30)
+
+Deploys are tag moves on immutable images, not rebuilds on the host.
+
+**Update** (registry path, FR-P29):
+
+```bash
+cd /opt/quality-gate
+git pull --ff-only                      # compose files + deploy/ + docs
+export QG_IMAGE_TAG=<new-commit-sha>    # tag pushed by publish-images
+docker compose -f compose.yaml -f compose.prod.yaml --profile tls pull
+docker compose -f compose.yaml -f compose.prod.yaml --profile tls up -d
+curl -fsS https://<QG_PUBLIC_HOST>/readyz
+```
+
+**Rollback** — pin the previous tag and re-deploy:
+
+```bash
+export QG_IMAGE_TAG=<previous-commit-sha>
+docker compose -f compose.yaml -f compose.prod.yaml --profile tls pull  # no-op if already local
+docker compose -f compose.yaml -f compose.prod.yaml --profile tls up -d
+```
+
+Rollback is safe because schema evolution is additive only — every
+table/column arrives via memoized `CREATE TABLE IF NOT EXISTS` /
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so an older binary reads a
+newer database without a downgrade step.
+
+Notes:
+
+- In-flight runs: `up -d` sends SIGTERM; the worker drains for up to
+  `QG_SHUTDOWN_GRACE_S` (FR-P5) and `queued`/`running` `pending_runs`
+  rows resume on the new version (FR-P4). No accepted review is lost.
+- Config-only changes (e.g. log-rotation bounds, FR-P25) apply on
+  container recreate — `up -d` recreates when the rendered config
+  differs; use `--force-recreate` when it does not.
+- Source-build path (dev): `git pull && docker compose --profile tls
+  up -d --build`.
+
+## 6. Security posture (what NOT to do)
 
 - Never enable the `mcp-server` `debug` profile in production —
   `spawn_process` is unauthenticated command execution (FR-P9).
