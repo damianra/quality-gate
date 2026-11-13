@@ -2,7 +2,8 @@ name: quality-gate
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # FR-P14: pinned by index digest (dependabot docker bumps it).
+    image: postgres:16-alpine@sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663
     environment:
       POSTGRES_USER: qualitygate
       POSTGRES_PASSWORD: qualitygate
@@ -114,7 +115,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     depends_on:
       - ingress
     volumes:
@@ -133,7 +134,7 @@ services:
   # domain: `docker compose --profile tls up -d`
   caddy:
     profiles: ["tls"]
-    image: caddy:2.8-alpine
+    image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
     depends_on:
       - nginx
     volumes:
@@ -151,7 +152,9 @@ services:
   # and pull the model once:
   #   docker compose exec ollama ollama pull qwen3:8b
   ollama:
-    image: ollama/ollama:latest
+    # FR-P14: `latest` frozen to a digest — the tag moves, the build
+    # doesn't. Dependabot refreshes the digest.
+    image: ollama/ollama:latest@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
     profiles: ["llm"]
     volumes:
       - ollama-models:/root/.ollama

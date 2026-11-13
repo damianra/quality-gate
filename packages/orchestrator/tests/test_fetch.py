@@ -176,6 +176,17 @@ def test_sweep_survives_missing_pgrep(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / "qg-stale").exists()
 
 
+def test_doctor_report_maps_tool_resolution(monkeypatch) -> None:
+    """FR-P13: startup report maps each tool to its path or None."""
+    monkeypatch.setattr(
+        fetch.shutil, "which",
+        lambda t: f"/usr/bin/{t}" if t in {"rg", "node"} else None)
+    report = fetch.doctor_report()
+    assert report["rg"] == "/usr/bin/rg"
+    assert report["osv-scanner"] is None
+    assert set(report) == set(fetch._VALIDATOR_TOOLS)
+
+
 def test_git_env_disables_prompts() -> None:
     env = fetch._git_env()
     assert env["GIT_TERMINAL_PROMPT"] == "0"

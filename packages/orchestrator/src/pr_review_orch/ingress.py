@@ -244,6 +244,7 @@ async def _lifespan(_app: FastAPI):
     global _QUEUE
     _QUEUE = asyncio.Queue()
     fetch.sweep_stale_worktrees()
+    fetch.doctor_report()  # FR-P13: log available validators/scanners
     # FR-P4: requeue deliveries a previous process accepted but never
     # finished (queued) or died inside (running).
     for event in await asyncio.to_thread(run_queue.recover):

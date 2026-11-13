@@ -183,6 +183,30 @@ def _kill_orphans() -> int:
     return killed
 
 
+#: Binaries the graph may spawn — resolved at startup so a missing
+#: toolchain is a logged gap, not a silent skip mid-run (FR-P13).
+_VALIDATOR_TOOLS = (
+    "rg", "tsc", "node", "go", "cargo",
+    "osv-scanner", "npm", "pip-audit",
+)
+
+
+def doctor_report() -> dict[str, str | None]:
+    """Log which validator/scanner binaries this image provides.
+
+    Runs at ingress startup: the FR-O24 audit and QA validators skip
+    gracefully when a tool is absent, so the report is the operator's
+    way to know the deployment actually covers its repos.
+    """
+    report = {tool: shutil.which(tool) for tool in _VALIDATOR_TOOLS}
+    missing = [t for t, p in report.items() if p is None]
+    logger.info(
+        "doctor: tools resolved=%s missing=%s",
+        {t: p for t, p in report.items() if p}, missing or "none",
+    )
+    return report
+
+
 def sweep_stale_worktrees() -> int:
     """Kill orphan validators + remove leftover ``qg-*`` dirs (FR-P7).
 

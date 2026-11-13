@@ -288,13 +288,20 @@ service is dead. Failed runs are queryable via
 `SELECT * FROM run_metrics WHERE status <> 'ok'` and
 `SELECT * FROM pending_runs WHERE status = 'failed'`. Postgres backups
 (pg_dump cron + restore runbook) are covered in
-[docs/backup-restore.md](docs/backup-restore.md) (FR-P17).
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17). At startup
+the ingress logs a doctor report of which validator/scanner binaries
+the image resolved (FR-P13); all base and compose images are pinned by
+digest and bumped by Dependabot, and `supply-chain.yml` builds + trivy
+-scans both images and the repo on packaging changes and weekly
+(FR-P14).
 
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — `paths:`-filtered unit tests.
 - `pr-review.yml` — on `pull_request`, spins a Postgres service, runs the
   graph, and fails if any spawned validator/scanner process survives.
+- `supply-chain.yml` — builds both Dockerfiles and trivy-scans the repo
+  and images (CRITICAL fails) on packaging changes and weekly.
 
 ## Splitting the monorepo later
 

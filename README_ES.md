@@ -307,13 +307,21 @@ del monitor significa que el servicio murió. Los runs fallidos se
 consultan con `SELECT * FROM run_metrics WHERE status <> 'ok'` y
 `SELECT * FROM pending_runs WHERE status = 'failed'`. Los backups de
 Postgres (cron de pg_dump + runbook de restore) están en
-[docs/backup-restore.md](docs/backup-restore.md) (FR-P17).
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17). Al arrancar,
+el ingress loguea un reporte doctor de qué binarios validador/scanner
+resolvió la imagen (FR-P13); todas las imágenes base y de compose están
+pineadas por digest y las actualiza Dependabot, y `supply-chain.yml`
+buildea + escanea con trivy ambas imágenes y el repo ante cambios de
+empaquetado y semanalmente (FR-P14).
 
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — tests unitarios filtrados por `paths:`.
 - `pr-review.yml` — en `pull_request`, levanta un servicio Postgres, corre
   el grafo y falla si sobrevive algún proceso validador/scanner.
+- `supply-chain.yml` — buildea ambos Dockerfiles y escanea con trivy el
+  repo y las imágenes (CRITICAL falla) ante cambios de empaquetado y
+  semanalmente.
 
 ## Separar el monorepo en el futuro
 
