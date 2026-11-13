@@ -277,6 +277,17 @@ never reach a spawned child's env (FR-P11) — and validators that would
 execute PR-controlled code (`cargo check`, `go vet`) are disabled by
 default in service mode (`QG_EXEC_VALIDATORS=0`, FR-P12).
 
+Operations (FR-P15/P16): service logs are one JSON object per record
+at `QG_LOG_LEVEL`, correlated by `run_id` (`pr-review/{repo}/{pr}` —
+the same key `run_metrics` uses), so "what happened to PR #N" is one
+grep or one SQL query. `GET /readyz` reports Postgres reachability and
+queue depth for monitoring (distinct from liveness `/healthz`), and
+`QG_HEARTBEAT_URL` is a dead-man ping (e.g. healthchecks.io) hit after
+every completed run — silence beyond the monitor's interval means the
+service is dead. Failed runs are queryable via
+`SELECT * FROM run_metrics WHERE status <> 'ok'` and
+`SELECT * FROM pending_runs WHERE status = 'failed'`.
+
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — `paths:`-filtered unit tests.

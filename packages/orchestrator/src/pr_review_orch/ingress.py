@@ -27,7 +27,7 @@ from fastapi import FastAPI, Request, Response
 
 from quality_gate_mcp import tools as mcp_tools
 
-from . import config, fetch, graph, run_queue
+from . import config, fetch, graph, logs, run_queue
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +149,30 @@ async def _post_status(event: dict[str, Any], state: str,
         )
 
 
+async def _heartbeat() -> None:
+    """Dead-man ping (FR-P16): GET QG_HEARTBEAT_URL after each run.
+
+    Silence past the monitor's interval means the service died; the
+    ping itself is best-effort — a heartbeat outage must never break a
+    review run.
+    """
+    url = config.HEARTBEAT_URL
+    if not url:
+        return
+    try:
+        import httpx
+        await asyncio.to_thread(httpx.get, url, timeout=10)
+    except Exception:  # noqa: BLE001
+        logger.warning("heartbeat ping failed", exc_info=True)
+
+
 async def _run_once(event: dict[str, Any]) -> None:
     """Clone -> review -> rmtree for one event (INV-2 directory cleanup)."""
     worktree = None
     delivery_id = event.get("delivery_id", "")
+    # FR-P15: correlate every log record of this run with the thread id
+    # that also keys run_metrics — contextvars propagate to to_thread.
+    logs.run_id_var.set(f"pr-review/{event['repo']}/{event['pr_number']}")
     try:
         await asyncio.to_thread(run_queue.mark_running, delivery_id)
         # FR-P8: gate the delivery sha — pending up front so the PR shows
@@ -183,6 +203,7 @@ async def _run_once(event: dict[str, Any]) -> None:
     finally:
         if worktree is not None:
             shutil.rmtree(worktree, ignore_errors=True)
+        await _heartbeat()  # FR-P16: success or failure both count
 
 
 async def _drain(key: str, first: dict[str, Any]) -> None:
@@ -258,6 +279,30 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/readyz")
+async def readyz() -> Response:
+    """Readiness (FR-P16): Postgres reachability + in-memory queue depth.
+
+    Unlike ``/healthz`` (process alive), this answers "can the service
+    accept and persist work right now": 503 when Postgres is configured
+    but unreachable, 200 otherwise. ``postgres`` is ``null`` when no DSN
+    is set (local in-memory mode — nothing to probe).
+    """
+    pg = await asyncio.to_thread(run_queue.reachable)
+    depth = _QUEUE.qsize() if _QUEUE is not None else 0
+    ready = pg is not False
+    body = {
+        "status": "ready" if ready else "degraded",
+        "postgres": pg,
+        "queue_depth": depth,
+    }
+    return Response(
+        json.dumps(body),
+        status_code=200 if ready else 503,
+        media_type="application/json",
+    )
+
+
 @app.post("/github/webhook")
 async def github_webhook(request: Request) -> Response:
     body = await request.body()
@@ -291,6 +336,9 @@ def main() -> None:
     """Run the ingress on loopback — nginx owns the public port."""
     import uvicorn
 
+    # FR-P15: JSON logs at QG_LOG_LEVEL — without this the WARNING
+    # default drops every informational run log.
+    logs.setup_logging(config.LOG_LEVEL)
     if not config.GITHUB_WEBHOOK_SECRET:
         logger.warning(
             "GITHUB_WEBHOOK_SECRET unset — every payload will be rejected"
