@@ -90,7 +90,8 @@ Apuntá el IDE compatible con MCP al servidor stdio — ej. `.vscode/mcp.json`:
 }
 ```
 
-O conectate al endpoint SSE que levanta compose:
+O conectate al endpoint SSE que levanta el profile `debug` de compose
+(`docker compose --profile debug up -d mcp-server`):
 `http://localhost:8000/sse`.
 
 ## Contrato del veredicto
@@ -201,6 +202,13 @@ QG_ALLOWED_REPOS=your-org/your-repo \
 QG_INGRESS_PORT=8089 \
 docker compose up -d ingress nginx
 
+# TLS en producción (FR-P10): caddy termina HTTPS en :443 y proxea al
+# nginx de loopback — definí QG_PUBLIC_HOST con el hostname público y
+# levantá el stack con el profile tls:
+QG_PUBLIC_HOST=qg.example.com \
+docker compose --profile tls up -d
+# La URL del webhook queda https://qg.example.com/github/webhook.
+
 # LLM: el ingress apunta por defecto a un ollama del HOST
 # (http://localhost:11434, vía host.docker.internal) para que el modelo
 # use todos los recursos de la máquina — alcanza con `ollama serve` +
@@ -238,12 +246,17 @@ permitido). Ver [docs/local-webhook-setup.md](docs/local-webhook-setup.md)
 para el levantamiento completo, todas las opciones de exposición,
 caveats y teardown.
 
-Controles de exposición pública (FR-O19..O22, INV-6): nginx es la única
-superficie pública (10 r/s por IP, body cap de 1 MB, solo el path del
-webhook se proxeea); todo payload se verifica por HMAC antes de
-parsear; `QG_ALLOWED_REPOS` es deny-by-default; el token llega a git
-solo vía headers de env; cada worktree se borra tras su run más un
-sweep de arranque.
+Controles de exposición pública (FR-O19..O22/P9/P10, INV-6): el endpoint
+TLS de caddy es la única superficie pública en producción (nginx,
+postgres y el backend ingress bindean loopback o la red interna); nginx
+aplica 10 r/s por IP y body cap de 1 MB en el path del webhook; todo
+payload se verifica por HMAC antes de parsear; `QG_ALLOWED_REPOS` es
+deny-by-default; el token llega a git solo vía headers de env; cada
+worktree se borra tras su run más un sweep de arranque. El servicio SSE
+de `mcp-server` queda detrás del profile `debug` — su tool
+`spawn_process` es ejecución de comandos sin autenticación y nunca debe
+ser pública. Todos los contenedores del modo servicio reinician
+automáticamente (`unless-stopped`).
 
 ## CI
 

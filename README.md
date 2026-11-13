@@ -88,7 +88,8 @@ Point your MCP-capable IDE at the stdio server — e.g. `.vscode/mcp.json`:
 }
 ```
 
-Or attach to the SSE endpoint started by compose:
+Or attach to the SSE endpoint started by compose's `debug` profile
+(`docker compose --profile debug up -d mcp-server`):
 `http://localhost:8000/sse`.
 
 ## Verdict contract
@@ -191,6 +192,13 @@ QG_ALLOWED_REPOS=your-org/your-repo \
 QG_INGRESS_PORT=8089 \
 docker compose up -d ingress nginx
 
+# Production TLS (FR-P10): caddy terminates HTTPS on :443 and proxies to
+# the loopback nginx — set QG_PUBLIC_HOST to the public hostname and
+# bring the stack up with the tls profile:
+QG_PUBLIC_HOST=qg.example.com \
+docker compose --profile tls up -d
+# Webhook URL becomes https://qg.example.com/github/webhook.
+
 # LLM: the ingress defaults to a HOST ollama (http://localhost:11434,
 # reached via host.docker.internal) so the model gets full machine
 # resources — just `ollama serve` + `ollama pull qwen3:8b` on the host.
@@ -226,11 +234,17 @@ deliveries* for `202` (accepted) / `401` (bad signature) / `403` (repo
 not allowed). See [docs/local-webhook-setup.md](docs/local-webhook-setup.md)
 for the full bring-up, all exposure options, caveats and teardown.
 
-Public-exposure controls (FR-O19..O22, INV-6): nginx is the only public
-surface (10 r/s per IP, 1 MB body cap, only the webhook path proxied);
-every payload is HMAC-verified before parsing; `QG_ALLOWED_REPOS` is
+Public-exposure controls (FR-O19..O22/P9/P10, INV-6): caddy's TLS
+endpoint is the only public surface in production (nginx, postgres and
+the ingress backend all bind loopback or the internal network); nginx
+applies 10 r/s per IP and a 1 MB body cap on the webhook path; every
+payload is HMAC-verified before parsing; `QG_ALLOWED_REPOS` is
 deny-by-default; the token reaches git only via env headers; each
-worktree is removed after its run plus a startup sweep.
+worktree is removed after its run plus a startup sweep. The
+`mcp-server` SSE service is behind a `debug` profile — its
+`spawn_process` tool is unauthenticated command execution and must
+never be public. All service-mode containers restart automatically
+(`unless-stopped`).
 
 ## CI
 

@@ -34,16 +34,20 @@ uv run qg-ingress            # http://127.0.0.1:$QG_INGRESS_PORT
 curl http://127.0.0.1:8089/healthz        # -> {"status":"ok"}
 ```
 
-### Compose (production-shaped; nginx is the only public port)
+### Compose (production-shaped; caddy is the only public port)
 
 ```bash
-docker compose up -d ingress nginx      # ingress on internal net only
+docker compose up -d ingress nginx      # nginx binds loopback only
 docker compose --profile llm up -d ollama   # optional LLM fallback
+# Production TLS: caddy owns 443/80, proxies to the loopback nginx
+QG_PUBLIC_HOST=qg.example.com docker compose --profile tls up -d
 ```
 
-Note: compose's `postgres` service publishes 5432 — if a standalone
-postgres already owns the host port, start the stack without it and point
-`DATABASE_URL` at the existing instance instead.
+Note: compose's `postgres` service publishes 5432 on **loopback only** —
+safe for local CLI runs; if a standalone postgres already owns the port,
+start the stack without it and point `DATABASE_URL` at the existing
+instance instead. The `mcp-server` SSE endpoint is behind the `debug`
+profile (unauthenticated `spawn_process` — never expose it).
 
 ### Context window (`num_ctx`)
 
@@ -91,9 +95,10 @@ ngrok http 8089   # https://<id>.ngrok-free.app
 
 ### Option D — real exposure (router / VPS)
 
-Port-forward 8089 on the router, or put the nginx compose service behind
-your own reverse proxy with a managed cert. Only needed for a permanent
-deployment — a tunnel is the right tool for local testing.
+Use the compose `tls` profile: caddy terminates HTTPS with automatic
+certificates and proxies to the loopback nginx — see §2. Port-forward
+443 on the router or point the VPS's public DNS at `QG_PUBLIC_HOST`.
+A tunnel remains the right tool for local testing only.
 
 ## 4. GitHub webhook settings
 
