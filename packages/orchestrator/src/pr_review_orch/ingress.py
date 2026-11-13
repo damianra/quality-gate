@@ -31,7 +31,7 @@ from . import config, fetch, graph, run_queue
 
 logger = logging.getLogger(__name__)
 
-_REVIEW_ACTIONS = {"opened", "synchronize", "reopened"}
+_REVIEW_ACTIONS = {"opened", "synchronize", "reopened", "ready_for_review"}
 _MAX_DELIVERY_IDS = 10_000
 
 #: Created per lifespan: queue waiters bind to the running event loop,
@@ -43,6 +43,9 @@ _SEEN_DELIVERIES: set[str] = set()
 _PENDING: dict[str, dict[str, Any]] = {}
 #: thread_ids with an active drain task (per-thread serialization).
 _ACTIVE: set[str] = set()
+#: In-flight drain tasks — tracked (not fire-and-forget) so shutdown
+#: can wait for them instead of abandoning runs mid-flight (FR-P5).
+_DRAINING: set[asyncio.Task] = set()
 
 
 def verify_signature(body: bytes, signature: str) -> bool:
@@ -72,11 +75,18 @@ def repo_allowed(full_name: str) -> bool:
 
 
 def _extract_event(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Pull repo/PR/sha out of a reviewable pull_request payload."""
+    """Pull repo/PR/sha out of a reviewable pull_request payload.
+
+    FR-P6: ``draft: true`` payloads are dropped — drafts are skipped on
+    open and on synchronize — while ``ready_for_review`` is accepted so
+    a PR marked ready gets its review.
+    """
     action = payload.get("action")
     pr = payload.get("pull_request") or {}
     repo = payload.get("repository") or {}
     if action not in _REVIEW_ACTIONS or not pr.get("number"):
+        return None
+    if pr.get("draft"):
         return None
     return {
         "repo": repo.get("full_name", ""),
@@ -197,7 +207,9 @@ async def _worker(queue: asyncio.Queue) -> None:
             _PENDING[key] = event  # coalesce: only the latest matters
             continue
         _ACTIVE.add(key)
-        asyncio.create_task(_drain_guarded(sem, key, event))
+        task = asyncio.create_task(_drain_guarded(sem, key, event))
+        _DRAINING.add(task)
+        task.add_done_callback(_DRAINING.discard)  # FR-P5: tracked
 
 
 async def _drain_guarded(sem: asyncio.Semaphore, key: str,
@@ -224,6 +236,18 @@ async def _lifespan(_app: FastAPI):
             await worker
         except asyncio.CancelledError:
             pass
+        # FR-P5 graceful shutdown: give in-flight runs up to
+        # QG_SHUTDOWN_GRACE_S to finish before cancelling their drains
+        # — a cancelled drain still rmtrees its worktree in the
+        # _run_once finally, so abandoning mid-clone is the last resort.
+        if _DRAINING:
+            logger.info(
+                "waiting up to %ss for %d in-flight run(s)",
+                config.SHUTDOWN_GRACE_S, len(_DRAINING))
+            _done, pending = await asyncio.wait(
+                _DRAINING, timeout=config.SHUTDOWN_GRACE_S)
+            for task in pending:
+                task.cancel()
 
 
 app = FastAPI(title="quality-gate ingress", lifespan=_lifespan)

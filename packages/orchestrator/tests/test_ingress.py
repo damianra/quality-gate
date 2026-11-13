@@ -113,6 +113,21 @@ def test_extract_event_filters_non_review() -> None:
     }
 
 
+def test_extract_event_skips_drafts_accepts_ready() -> None:
+    """FR-P6: draft PRs are skipped; ready_for_review runs the review."""
+    draft = _payload(action="opened")
+    draft["pull_request"]["draft"] = True
+    assert ingress._extract_event(draft) is None
+
+    draft_sync = _payload(action="synchronize")
+    draft_sync["pull_request"]["draft"] = True
+    assert ingress._extract_event(draft_sync) is None
+
+    ready = _payload(action="ready_for_review")
+    event = ingress._extract_event(ready)
+    assert event is not None and event["pr_number"] == 7
+
+
 # --- endpoint -------------------------------------------------------------- #
 
 def test_bad_signature_rejected(client) -> None:
@@ -418,6 +433,36 @@ def test_run_once_marks_failed_on_crash(
     assert marks[0] == ("running", "d-1")
     assert marks[1][0:2] == ("failed", "d-1")
     assert "clone failed" in marks[1][2]
+
+
+def test_worker_tracks_drain_tasks(monkeypatch) -> None:
+    """FR-P5: dispatched drains register in _DRAINING for shutdown wait."""
+    q: asyncio.Queue = asyncio.Queue()
+    started = asyncio.Event()
+
+    async def fake_drain(sem, key, event):
+        started.set()
+        await asyncio.sleep(60)   # still in-flight when we check
+
+    monkeypatch.setattr(ingress, "_drain_guarded", fake_drain)
+    ingress._DRAINING.clear()
+    ingress._ACTIVE.clear()
+
+    async def drive():
+        worker = asyncio.create_task(ingress._worker(q))
+        q.put_nowait({"repo": "a/b", "pr_number": 1,
+                      "clone_url": "u", "head_sha": "s"})
+        await asyncio.wait_for(started.wait(), timeout=5)
+        assert len(ingress._DRAINING) == 1
+        worker.cancel()
+        for t in ingress._DRAINING:
+            t.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(drive())
 
 
 def test_drain_coalesces_pending(monkeypatch) -> None:
