@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from pr_review_orch import metrics
 
 
@@ -158,7 +160,8 @@ def _full_state() -> dict:
 def test_run_row_maps_task_fields() -> None:
     row = metrics._run_row(_full_state(), "pr-review/quality-gate/7")
     (run_id, repo, pr, sha, dry, _dur, approve, blockers, warnings, infos,
-     calls, prompt, completion, total, nodes, procs, report) = row
+     calls, prompt, completion, total, nodes, procs, report,
+     status, error) = row
     assert run_id == "pr-review/quality-gate/7"
     assert repo == "acme/widgets" and pr == 7 and sha == "abc1234"
     assert dry is True and approve is True
@@ -168,6 +171,7 @@ def test_run_row_maps_task_fields() -> None:
     assert isinstance(nodes, metrics.Jsonb)
     assert isinstance(procs, metrics.Jsonb)
     assert isinstance(report, metrics.Jsonb)
+    assert status == "ok" and error is None   # FR-P2 defaults
 
 
 def test_call_rows_map_per_call_fields() -> None:
@@ -261,16 +265,54 @@ def test_persist_run_writes_rows(monkeypatch) -> None:
     metrics.persist_run(_full_state(), "run-1", dsn="postgres://x")
 
     kinds = [k for k, *_ in conn.cur.calls]
-    # 2 CREATE + 4 ALTER DDL (first call in process) + 1 run + 2 calls
-    assert kinds.count("execute") == 9
+    # 2 CREATE + 6 ALTER DDL (first call in process) + 1 run + 2 calls
+    assert kinds.count("execute") == 11
 
-    run_insert = conn.cur.calls[6]
+    run_insert = conn.cur.calls[8]
     assert run_insert[2][0] == "run-1"      # first param is run_id
     # FR-P1: repo column is the slug, not the ephemeral worktree path.
     assert run_insert[2][1] == "acme/widgets"
-    first_call_insert = conn.cur.calls[7][2]
+    assert run_insert[2][17] == "ok"        # FR-P2 default status
+    assert run_insert[2][18] is None        # no error on success
+    first_call_insert = conn.cur.calls[9][2]
     assert first_call_insert[6] == "openrouter"
     assert conn.committed
+
+
+def test_persist_run_marks_error_status(monkeypatch) -> None:
+    """FR-P2: a failed run persists status/error instead of vanishing."""
+    monkeypatch.setattr(metrics, "_SCHEMA_READY", True)
+    conn = _FakeConn()
+    monkeypatch.setattr(metrics.psycopg, "connect",
+                        lambda *a, **kw: conn)
+    metrics.persist_run(
+        _full_state(), "run-1", dsn="postgres://x",
+        status="error", error="RuntimeError: node exploded")
+    run_insert = conn.cur.calls[0]
+    assert run_insert[2][17] == "error"
+    assert run_insert[2][18] == "RuntimeError: node exploded"
+
+
+def test_run_pr_review_persists_error_on_crash(monkeypatch, tmp_path) -> None:
+    """FR-P2: the finally path leaves a run_metrics row for a crashed
+    run — the exception propagates but the failure is queryable."""
+    from pr_review_orch import graph
+    monkeypatch.setattr(graph.config, "DATABASE_URL", "")
+    monkeypatch.setattr(
+        graph.git_ops, "get_remote_slug", lambda *_a: "acme/widgets")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("node exploded")
+
+    monkeypatch.setattr(graph, "build_graph", boom)
+    recorded: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        graph.metrics, "persist_run",
+        lambda state, run_id, **kw: recorded.append((run_id, kw)))
+    with pytest.raises(RuntimeError, match="node exploded"):
+        graph.run_pr_review(str(tmp_path), 7)
+    assert recorded == [("pr-review/acme/widgets/7", {
+        "status": "error", "error": "RuntimeError: node exploded"})]
 
 
 def test_persist_run_runs_ddl_once_per_process(monkeypatch) -> None:
@@ -288,7 +330,7 @@ def test_persist_run_runs_ddl_once_per_process(monkeypatch) -> None:
         1 for _k, sql, _p in conn.cur.calls if "ADD COLUMN" in sql
     )
     assert ddl_count == 2   # only the first persist_run ran the DDLs
-    assert alter_count == 4  # FR-T4 telemetry columns, once per process
+    assert alter_count == 6  # FR-T4 + FR-P2 columns, once per process
 
 
 def test_call_rows_skips_malformed_entry() -> None:

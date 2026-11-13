@@ -138,7 +138,9 @@ where time and tokens go. A collapsible `<details>` block adds per-model
 telemetry: tokens (p+c), duration, completion tok/s, host RSS delta and
 the model footprint the provider reports (Ollama `/api/ps` → RAM/VRAM).
 Fields a provider does not return render as `—`; telemetry never blocks
-a run.
+a run. Persisted `run_metrics` rows carry a `status` (`ok|error|timeout`)
++ `error` column (FR-P2): a crashed run is a queryable row, not a silent
+gap — `SELECT * FROM run_metrics WHERE status <> 'ok'` lists failures.
 
 ### LLM provider (optional)
 
