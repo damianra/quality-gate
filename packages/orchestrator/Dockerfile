@@ -7,8 +7,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 # git + ripgrep (MCP tools) + node (QA syntax validation fallback)
+# + procps (pgrep for the FR-P7 orphan-process sweep at ingress startup)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ripgrep nodejs \
+    && apt-get install -y --no-install-recommends \
+       git ripgrep nodejs procps \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/

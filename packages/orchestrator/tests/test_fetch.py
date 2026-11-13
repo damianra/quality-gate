@@ -81,12 +81,47 @@ def test_clone_rejects_oversized_worktree(
 
 def test_sweep_stale_worktrees(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    monkeypatch.setattr(fetch, "_kill_orphans", lambda: 0)
     (tmp_path / "qg-stale1").mkdir()
     (tmp_path / "qg-stale2").mkdir()
     (tmp_path / "keep-me").mkdir()
     assert fetch.sweep_stale_worktrees() == 2
     assert (tmp_path / "keep-me").exists()
     assert not (tmp_path / "qg-stale1").exists()
+
+
+def test_sweep_kills_orphan_process_groups(tmp_path, monkeypatch) -> None:
+    """FR-P7: pgrep hits get killpg'd before the dir sweep runs."""
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    (tmp_path / "qg-stale").mkdir()
+
+    class _Out:
+        stdout = "4242\nnot-a-pid\n4343\n"
+
+    monkeypatch.setattr(
+        fetch.subprocess, "run", lambda *a, **k: _Out())
+    pgids = {4242: 4242, 4343: 4343}
+    monkeypatch.setattr(
+        fetch.os, "getpgid", lambda pid: pgids[pid])
+    killed: list[int] = []
+    monkeypatch.setattr(
+        fetch.os, "killpg", lambda pgid, sig: killed.append(pgid))
+    assert fetch.sweep_stale_worktrees() == 1
+    assert killed == [4242, 4343]       # bad line skipped
+    assert not (tmp_path / "qg-stale").exists()
+
+
+def test_sweep_survives_missing_pgrep(tmp_path, monkeypatch) -> None:
+    """FR-P7: no procps -> dirs are still swept, no exception."""
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    (tmp_path / "qg-stale").mkdir()
+
+    def boom(*a, **k):
+        raise FileNotFoundError("pgrep")
+
+    monkeypatch.setattr(fetch.subprocess, "run", boom)
+    assert fetch.sweep_stale_worktrees() == 1
+    assert not (tmp_path / "qg-stale").exists()
 
 
 def test_git_env_disables_prompts() -> None:

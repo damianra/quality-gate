@@ -105,3 +105,7 @@ MAX_CONCURRENT_RUNS = int(os.environ.get("QG_MAX_CONCURRENT_RUNS", "2"))
 #: FR-P8: commit-status context posted on the PR head sha so repos can
 #: require the review via branch protection ("require status checks").
 STATUS_CONTEXT = os.environ.get("QG_STATUS_CONTEXT", "quality-gate")
+
+#: FR-P5: seconds the worker waits for in-flight runs on shutdown
+#: before cancelling drain tasks.
+SHUTDOWN_GRACE_S = float(os.environ.get("QG_SHUTDOWN_GRACE_S", "120"))

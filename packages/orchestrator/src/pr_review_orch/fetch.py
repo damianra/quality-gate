@@ -19,6 +19,8 @@ import base64
 import logging
 import os
 import shutil
+import signal
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -122,8 +124,50 @@ def clone_pr(clone_url: str, head_sha: str) -> Path:
         raise FetchError(f"unexpected clone failure: {exc}")
 
 
+#: Process signatures a crashed run may have leaked — same set the CI
+#: orphan assertion pgrep's for (FR-P7).
+_ORPHAN_PATTERN = (
+    "tsc --noEmit|node --check|compile\\(fh\\.read|go vet|"
+    "cargo check|rg --line-number"
+)
+
+
+def _kill_orphans() -> int:
+    """SIGKILL process groups matching validator/scanner signatures.
+
+    Runs at ingress startup, before the worktree sweep: a ``kill -9``'d
+    worker must not leak ``tsc``/``cargo``/``osv-scanner`` children
+    (FR-P7). Spawned groups die whole via their pgid — matching the
+    cleanup contract's killpg semantics.
+    """
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", _ORPHAN_PATTERN],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 0  # no procps on this host — sweep dirs anyway
+    killed = 0
+    for line in out.stdout.split():
+        if not line.strip().isdigit():
+            continue
+        try:
+            os.killpg(os.getpgid(int(line)), signal.SIGKILL)
+            killed += 1
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    return killed
+
+
 def sweep_stale_worktrees() -> int:
-    """Remove leftover ``qg-*`` dirs (crashed runs); return count removed."""
+    """Kill orphan validators + remove leftover ``qg-*`` dirs (FR-P7).
+
+    Returns the count of directories removed (crashed runs).
+    """
+    killed = _kill_orphans()
+    if killed:
+        logger.warning(
+            "killed %d orphan validator/scanner group(s)", killed)
     removed = 0
     root = _worktree_root()
     for entry in root.iterdir():
