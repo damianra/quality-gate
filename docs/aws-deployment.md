@@ -61,7 +61,19 @@ Sample `user-data`:
 ```bash
 #!/bin/bash
 set -euo pipefail   # no `set -x` — command output would leak to logs
-apt-get update && apt-get install -y docker.io docker-compose-v2 awscli
+
+# Docker + compose plugin from Docker's apt repo — Ubuntu LTS (22.04)
+# does not ship docker-compose-v2; docker.io alone is too old for
+# `docker compose` v2 syntax used by compose.yaml.
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin awscli
 systemctl enable --now docker
 
 mkdir -p /opt/quality-gate && cd /opt/quality-gate
