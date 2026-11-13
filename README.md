@@ -286,7 +286,9 @@ queue depth for monitoring (distinct from liveness `/healthz`), and
 every completed run — silence beyond the monitor's interval means the
 service is dead. Failed runs are queryable via
 `SELECT * FROM run_metrics WHERE status <> 'ok'` and
-`SELECT * FROM pending_runs WHERE status = 'failed'`.
+`SELECT * FROM pending_runs WHERE status = 'failed'`. Postgres backups
+(pg_dump cron + restore runbook) are covered in
+[docs/backup-restore.md](docs/backup-restore.md) (FR-P17).
 
 ## CI
 
