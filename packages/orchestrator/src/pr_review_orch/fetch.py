@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from quality_gate_mcp import config as mcp_config
@@ -82,9 +83,32 @@ def _git(cwd: Path, args: list[str], step: str) -> None:
 def clone_pr(clone_url: str, head_sha: str) -> Path:
     """Clone ``clone_url`` at ``head_sha`` into a fresh ``qg-*`` worktree.
 
-    The clone is blob-filtered, fetched by SHA (works for forks too), and
-    checked against ``QG_MAX_WORKTREE_BYTES``. Any failure removes the
-    worktree before raising FetchError — the worktree never leaks.
+    Retries transient git faults with exponential backoff (FR-P3):
+    timeouts and worktree-size-cap failures are permanent for the
+    delivery and never retry. Each attempt gets a fresh ``qg-*`` dir —
+    the failed one is removed before the next.
+    """
+    last_exc: FetchError | None = None
+    for attempt in range(config.RETRY_ATTEMPTS):
+        try:
+            return _clone_once(clone_url, head_sha)
+        except FetchError as exc:
+            last_exc = exc
+            msg = str(exc)
+            if "timed_out=True" in msg or "exceeds cap" in msg:
+                raise  # permanent for this delivery — don't burn budget
+            if attempt + 1 < config.RETRY_ATTEMPTS:
+                logger.warning(
+                    "clone attempt %d/%d failed (%s); retrying",
+                    attempt + 1, config.RETRY_ATTEMPTS, exc)
+                time.sleep(config.RETRY_BACKOFF_S * (2 ** attempt))
+    raise last_exc  # type: ignore[misc]
+
+
+def _clone_once(clone_url: str, head_sha: str) -> Path:
+    """Single clone attempt — blob-filtered, fetched by SHA (works for
+    forks too), checked against ``QG_MAX_WORKTREE_BYTES``. Any failure
+    removes the worktree before raising FetchError — it never leaks.
     """
     worktree = Path(
         tempfile.mkdtemp(prefix="qg-", dir=str(_worktree_root()))

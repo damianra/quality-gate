@@ -6,11 +6,18 @@ and is never logged or embedded in URLs.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
 
 from . import config
+
+#: Statuses worth a retry (rate limit, gateway/server faults).
+_RETRYABLE_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+#: Never sleep past this even if Retry-After asks for more — retried
+#: calls stay inside the caller's timeout budget (FR-P3).
+_MAX_RETRY_DELAY_S = 30.0
 
 
 class GitHubClient:
@@ -39,8 +46,32 @@ class GitHubClient:
 
     # -- internals ---------------------------------------------------------- #
 
+    def _send(self, method: str, path: str, **kw: Any) -> httpx.Response:
+        """One request with bounded retries on transient faults (FR-P3).
+
+        Retries 429/5xx and ``httpx.TransportError`` with exponential
+        backoff honoring ``Retry-After``; permanent 4xx/auth responses
+        return immediately for the caller to ``raise_for_status``.
+        """
+        for attempt in range(config.RETRY_ATTEMPTS):
+            try:
+                r = self._client.request(method, path, **kw)
+            except httpx.TransportError:
+                if attempt + 1 >= config.RETRY_ATTEMPTS:
+                    raise
+                time.sleep(config.RETRY_BACKOFF_S * (2 ** attempt))
+                continue
+            if (r.status_code not in _RETRYABLE_STATUSES
+                    or attempt + 1 >= config.RETRY_ATTEMPTS):
+                return r
+            retry_after = r.headers.get("Retry-After", "")
+            delay = (float(retry_after) if retry_after.isdigit()
+                     else config.RETRY_BACKOFF_S * (2 ** attempt))
+            time.sleep(min(delay, _MAX_RETRY_DELAY_S))
+        raise AssertionError("unreachable")  # pragma: no cover
+
     def _get(self, path: str, **kw: Any) -> Any:
-        r = self._client.get(path, **kw)
+        r = self._send("GET", path, **kw)
         r.raise_for_status()
         return r.json()
 
@@ -75,7 +106,8 @@ class GitHubClient:
 
     def get_pr_diff_text(self, slug: str, pr_number: int) -> str:
         """Fetch the full unified diff of a PR (may be large — use sparingly)."""
-        r = self._client.get(
+        r = self._send(
+            "GET",
             f"/repos/{slug}/pulls/{pr_number}",
             headers={"Accept": "application/vnd.github.v3.diff"},
         )
@@ -85,7 +117,8 @@ class GitHubClient:
     def create_pull(
         self, slug: str, head: str, base: str, title: str, body: str = ""
     ) -> dict[str, Any]:
-        r = self._client.post(
+        r = self._send(
+            "POST",
             f"/repos/{slug}/pulls",
             json={"title": title, "head": head, "base": base, "body": body},
         )
@@ -116,7 +149,7 @@ class GitHubClient:
         }
         if target_url:
             body["target_url"] = target_url
-        r = self._client.post(f"/repos/{slug}/statuses/{sha}", json=body)
+        r = self._send("POST", f"/repos/{slug}/statuses/{sha}", json=body)
         r.raise_for_status()
         return r.json()
 
@@ -126,13 +159,17 @@ class GitHubClient:
         return self._get_all_pages(f"/repos/{slug}/issues/{issue_number}/comments")
 
     def create_issue_comment(self, slug: str, issue_number: int, body: str) -> dict[str, Any]:
-        r = self._client.post(
+        r = self._send(
+            "POST",
             f"/repos/{slug}/issues/{issue_number}/comments", json={"body": body}
         )
         r.raise_for_status()
         return r.json()
 
     def update_issue_comment(self, slug: str, comment_id: int, body: str) -> dict[str, Any]:
-        r = self._client.patch(f"/repos/{slug}/issues/comments/{comment_id}", json={"body": body})
+        r = self._send(
+            "PATCH",
+            f"/repos/{slug}/issues/comments/{comment_id}", json={"body": body}
+        )
         r.raise_for_status()
         return r.json()

@@ -30,6 +30,14 @@ HTTP_TIMEOUT = float(os.environ.get("QG_HTTP_TIMEOUT", "30"))
 #: Grace period between SIGTERM and SIGKILL when killing a process group.
 KILL_GRACE_SECONDS = float(os.environ.get("QG_KILL_GRACE_SECONDS", "3"))
 
+# --- Retries (FR-P3) ---------------------------------------------------------
+
+#: Attempts for transient faults (429/5xx/network) on GitHub REST calls
+#: and the ephemeral clone. Permanent 4xx/auth failures never retry.
+RETRY_ATTEMPTS = int(os.environ.get("QG_RETRY_ATTEMPTS", "3"))
+#: Backoff base seconds — delay is base * 2**attempt, or Retry-After.
+RETRY_BACKOFF_S = float(os.environ.get("QG_RETRY_BACKOFF_S", "2"))
+
 # --- Vibecoding scanner thresholds -------------------------------------------
 
 LARGE_DIFF_FILES = int(os.environ.get("QG_LARGE_DIFF_FILES", "10"))

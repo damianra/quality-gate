@@ -109,3 +109,9 @@ STATUS_CONTEXT = os.environ.get("QG_STATUS_CONTEXT", "quality-gate")
 #: FR-P5: seconds the worker waits for in-flight runs on shutdown
 #: before cancelling drain tasks.
 SHUTDOWN_GRACE_S = float(os.environ.get("QG_SHUTDOWN_GRACE_S", "120"))
+
+#: FR-P3: attempts for transient clone faults (network hiccups on
+#: git clone/fetch). Timeouts and size-cap failures never retry.
+RETRY_ATTEMPTS = int(os.environ.get("QG_RETRY_ATTEMPTS", "3"))
+#: FR-P3: backoff base seconds between clone attempts.
+RETRY_BACKOFF_S = float(os.environ.get("QG_RETRY_BACKOFF_S", "2"))
