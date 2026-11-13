@@ -1,0 +1,23 @@
+# FR-P14: keep pinned images, actions and uv deps moving forward safely.
+version: 2
+updates:
+  # Base-image digests in packages/*/Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # compose.yaml image digests (postgres/nginx/caddy/ollama).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Actions referenced by .github/workflows/*.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # uv.lock workspace dependencies.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"

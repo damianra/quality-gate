@@ -1,0 +1,71 @@
+name: supply-chain
+
+# FR-P14: scan the repo and the production images for critical CVEs and
+# verify both Dockerfiles still build. Runs on changes to dependency or
+# packaging inputs and weekly, so existing pins get rescanned as new
+# CVEs are published.
+
+on:
+  pull_request:
+    paths:
+      - "packages/*/Dockerfile"
+      - "compose.yaml"
+      - "uv.lock"
+      - "pyproject.toml"
+      - "packages/*/pyproject.toml"
+      - ".github/workflows/supply-chain.yml"
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Repo filesystem scan: uv.lock + manifests, fails on criticals.
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+          ignore-unfixed: true
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build orchestrator image
+        run: |
+          docker build -t qg-orchestrator:ci \
+            -f packages/orchestrator/Dockerfile .
+
+      - name: Build mcp-server image
+        run: |
+          docker build -t qg-mcp-server:ci \
+            -f packages/mcp-server/Dockerfile .
+
+      - name: Trivy image scan (orchestrator)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "image"
+          image-ref: "qg-orchestrator:ci"
+          severity: "CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Trivy image scan (mcp-server)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "image"
+          image-ref: "qg-mcp-server:ci"
+          severity: "CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
