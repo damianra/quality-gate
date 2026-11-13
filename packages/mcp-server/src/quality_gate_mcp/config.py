@@ -11,9 +11,27 @@ import os
 
 GITHUB_API_URL = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
+# --- GitHub App auth (FR-P18) -------------------------------------------------
+
+#: When all three are set, installation tokens are minted at run time
+#: instead of using the GITHUB_TOKEN PAT. The key may carry literal
+#: ``\n`` escapes (single-line env storage).
+GITHUB_APP_ID = os.environ.get("GITHUB_APP_ID", "")
+GITHUB_APP_PRIVATE_KEY = os.environ.get("GITHUB_APP_PRIVATE_KEY", "")
+GITHUB_APP_INSTALLATION_ID = os.environ.get(
+    "GITHUB_APP_INSTALLATION_ID", "")
+
 
 def github_token() -> str:
-    """Return the GitHub token from the environment (never log this value)."""
+    """Return the token for GitHub calls (never log this value).
+
+    FR-P18: the GitHub App path wins when configured — a 1h installation
+    token minted at run time beats a long-lived PAT. Local runs keep
+    working with plain ``GITHUB_TOKEN``.
+    """
+    from . import github_app  # local import: avoids the config cycle
+    if github_app.app_configured():
+        return github_app.installation_token()
     return os.environ.get("GITHUB_TOKEN", "")
 
 

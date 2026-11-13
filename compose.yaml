@@ -68,6 +68,10 @@ services:
         condition: service_healthy
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # FR-P18: preferred over the PAT when all three are set.
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       DATABASE_URL: postgresql://qualitygate:qualitygate@postgres:5432/qualitygate
       QG_ALLOWED_REPOS: ${QG_ALLOWED_REPOS:-}

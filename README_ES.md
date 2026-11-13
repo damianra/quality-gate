@@ -124,7 +124,14 @@ Copiá `.env.example` a `.env` (ignorado por git) y completá los valores —
 lista todas las variables de abajo con sus defaults. `compose.yaml` lo
 levanta automáticamente.
 
-- `GITHUB_TOKEN` — solo por entorno, nunca en logs/código (requerido)
+- `GITHUB_TOKEN` — solo por entorno, nunca en logs/código (requerido
+  salvo que se use el camino de GitHub App)
+- `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` /
+  `GITHUB_APP_INSTALLATION_ID` — recomendado en producción (FR-P18):
+  el servicio mintea tokens de instalación de 1h en runtime en lugar de
+  un PAT de larga vida; los comentarios/statuses quedan a nombre del bot
+  de la app con permisos mínimos, y dar de alta un repo es "instalar la
+  app". El PAT sigue soportado para corridas locales.
 - `DATABASE_URL` — DSN del checkpointer Postgres (opcional)
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — inputs del orquestador
 - `QG_*` — timeouts y umbrales del scanner (ver `config.py` de cada paquete)
