@@ -158,7 +158,7 @@ services:
   # domain: `docker compose --profile tls up -d`
   caddy:
     profiles: ["tls"]
-    image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     depends_on:
       - nginx
     volumes:
