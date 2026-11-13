@@ -96,6 +96,31 @@ def test_anthropic_request_shape() -> None:
     assert payload["messages"] == [{"role": "user", "content": "user"}]
 
 
+def test_anthropic_request_json_mode_adds_output_config() -> None:
+    cfg = LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "ak",
+         "QG_LLM_JSON_MODE": "1"}
+    )
+    _, headers, payload = cfg._anthropic_request("sys", "user")
+    # FR-P26: json_mode must reach the wire as structured output —
+    # the findings schema wrapped in the required object root, on an
+    # API version that understands output_config.format.
+    assert headers["anthropic-version"] == "2026-10-21"
+    fmt = payload["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    schema = fmt["schema"]
+    assert schema["type"] == "object"
+    items = schema["properties"]["findings"]["items"]
+    assert set(items["required"]) == {"severity", "title", "detail"}
+    # disabled -> no structured output, baseline API version
+    cfg2 = LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "ak"}
+    )
+    _, headers2, payload2 = cfg2._anthropic_request("sys", "user")
+    assert headers2["anthropic-version"] == "2023-06-01"
+    assert "output_config" not in payload2
+
+
 def test_openai_response_truncated_on_length() -> None:
     out = _parse_response(
         "openai",
