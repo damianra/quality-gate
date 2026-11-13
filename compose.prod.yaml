@@ -1,0 +1,28 @@
+name: quality-gate
+
+# FR-P29: production overlay — run registry images instead of building
+# on the host. CI (.github/workflows/publish-images.yml) pushes
+#   ghcr.io/damianra/quality-gate/<pkg>:<commit-sha>  and  :latest
+# on every merge to main.
+#
+#   docker compose -f compose.yaml -f compose.prod.yaml --profile tls up -d
+#
+# Pin a release with QG_IMAGE_TAG=<commit-sha>; :latest tracks main.
+# For strict digest pinning set the full ref in a local override file:
+#   image: ghcr.io/.../pr-review-orchestrator@sha256:<digest>
+# Images are amd64-only — ARM hosts keep the `build:` path of
+# compose.yaml (the Dockerfiles resolve the arch at build time).
+# `!reset null` clears the base file's build: so compose never builds.
+
+services:
+  orchestrator:
+    build: !reset null
+    image: ghcr.io/damianra/quality-gate/pr-review-orchestrator:${QG_IMAGE_TAG:-latest}
+
+  ingress:
+    build: !reset null
+    image: ghcr.io/damianra/quality-gate/pr-review-orchestrator:${QG_IMAGE_TAG:-latest}
+
+  mcp-server:
+    build: !reset null
+    image: ghcr.io/damianra/quality-gate/quality-gate-mcp:${QG_IMAGE_TAG:-latest}
