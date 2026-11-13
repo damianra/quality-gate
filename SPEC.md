@@ -653,10 +653,13 @@ implementing:
 - **PR authoring flow** — `create_pr` exists; an "auto-fix PR" agent is
   not yet specced.
 - **Production hardening** — `docs/specs/production-hardening.md`
-  (FR-P1..P19): commit-status gating, durable run queue, failure
+  (FR-P1..P30): commit-status gating, durable run queue, failure
   visibility, env scrubbing + validator execution policy, TLS/exposure
   hygiene, structured logging/readiness/alerting, backups, GitHub App
-  auth and supported LLM deployment profiles.
+  auth, supported LLM deployment profiles and the phase-3 deployment
+  readiness items (public readiness path, compose secret hygiene, log
+  rotation, Anthropic structured output, off-box backups, AWS bring-up,
+  immutable image delivery, update/rollback).
 - **Monorepo split** — `git subtree split --prefix=packages/<pkg>` is the
   documented exit path.
 

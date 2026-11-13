@@ -25,7 +25,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Repo filesystem scan: uv.lock + manifests, fails on criticals.
       - name: Trivy filesystem scan
@@ -40,7 +40,7 @@ jobs:
   images:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build orchestrator image
         run: |
