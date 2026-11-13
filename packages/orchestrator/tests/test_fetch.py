@@ -79,6 +79,58 @@ def test_clone_rejects_oversized_worktree(
     assert list(tmp_path.iterdir()) == []
 
 
+def test_clone_retries_transient_fault(tmp_path, monkeypatch) -> None:
+    """FR-P3: a transient git failure retries; success on 2nd attempt."""
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "RETRY_ATTEMPTS", 3)
+    monkeypatch.setattr(config, "RETRY_BACKOFF_S", 0)
+    attempts = {"n": 0}
+
+    def flaky(url, sha):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise fetch.FetchError("git clone failed (exit=128)")
+        return tmp_path / "qg-ok"
+
+    monkeypatch.setattr(fetch, "_clone_once", flaky)
+    assert fetch.clone_pr("u", "s") == tmp_path / "qg-ok"
+    assert attempts["n"] == 2
+
+
+def test_clone_does_not_retry_timeout_or_cap(
+    tmp_path, monkeypatch
+) -> None:
+    """FR-P3: timeouts and size-cap failures are permanent."""
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "RETRY_ATTEMPTS", 3)
+    monkeypatch.setattr(config, "RETRY_BACKOFF_S", 0)
+    for msg in ("git clone failed (exit=None, timed_out=True)",
+                "worktree exceeds cap: 99 > 1 bytes"):
+        attempts = {"n": 0}
+
+        def fail(url, sha, _msg=msg):
+            attempts["n"] += 1
+            raise fetch.FetchError(_msg)
+
+        monkeypatch.setattr(fetch, "_clone_once", fail)
+        with pytest.raises(fetch.FetchError):
+            fetch.clone_pr("u", "s")
+        assert attempts["n"] == 1
+
+
+def test_clone_exhausts_attempts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "RETRY_ATTEMPTS", 2)
+    monkeypatch.setattr(config, "RETRY_BACKOFF_S", 0)
+
+    def fail(url, sha):
+        raise fetch.FetchError("git clone failed (exit=128)")
+
+    monkeypatch.setattr(fetch, "_clone_once", fail)
+    with pytest.raises(fetch.FetchError, match="exit=128"):
+        fetch.clone_pr("u", "s")
+
+
 def test_sweep_stale_worktrees(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(config, "WORKTREE_ROOT", str(tmp_path))
     monkeypatch.setattr(fetch, "_kill_orphans", lambda: 0)
