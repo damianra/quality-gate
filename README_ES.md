@@ -13,7 +13,7 @@ contractual con el veredicto en GitHub.
 Dos paquetes versionados de forma independiente en un workspace de `uv`:
 
 ```text
-packages/mcp-server     servidor FastMCP stateless — herramientas
+packages/mcp-server     servidor MCP stateless — herramientas
                         determinísticas (git/GitHub API, ripgrep, procesos)
 packages/orchestrator   cerebro LangGraph stateful — router, especialistas,
                         sintetizador, cleanup obligatorio

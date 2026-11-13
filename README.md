@@ -13,7 +13,7 @@ posts a contractual verdict comment on GitHub.
 Two independently-versioned packages in one `uv` workspace:
 
 ```text
-packages/mcp-server     stateless FastMCP server — deterministic tools
+packages/mcp-server     stateless MCP server — deterministic tools
                         (git/GitHub API, ripgrep, process spawning)
 packages/orchestrator   stateful LangGraph brain — router, specialists,
                         synthesizer, mandatory cleanup
