@@ -80,25 +80,28 @@ services:
       # run PR-controlled code (cargo check -> build.rs, go vet -> cgo)
       # stay off unless the operator explicitly opts in.
       QG_EXEC_VALIDATORS: ${QG_EXEC_VALIDATORS:-0}
-      QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-ollama}
-      QG_LLM_MODEL: ${QG_LLM_MODEL:-qwen3:8b}
-      # All four roles default to local ollama/qwen3:8b — each is an
-      # independent stateless session with its own system prompt and
-      # bounded context (FR-T5). JSON mode on for the specialists
-      # (qwen3 ignores the JSON findings contract without it); the
-      # harness emits prose so it stays off.
-      QG_LLM_PROVIDER_REVIEW: ${QG_LLM_PROVIDER_REVIEW:-ollama}
-      QG_LLM_MODEL_REVIEW: ${QG_LLM_MODEL_REVIEW:-qwen3:8b}
+      # FR-P19 deployment profiles: the CPU-only default is
+      # DETERMINISTIC (empty provider -> zero LLM calls). Opt into the
+      # `api` profile by exporting QG_LLM_PROVIDER(+key), or the `local`
+      # profile (ollama) only on a GPU host — 8B reasoning on CPU is
+      # minutes/call, not viable for interactive review.
+      QG_LLM_PROVIDER: ${QG_LLM_PROVIDER:-}
+      QG_LLM_MODEL: ${QG_LLM_MODEL:-}
+      # Per-role overrides (FR-O15/FR-T5): empty = inherit the base
+      # block. JSON mode defaults on for the specialists — reasoning
+      # models ignore the JSON findings contract without it.
+      QG_LLM_PROVIDER_REVIEW: ${QG_LLM_PROVIDER_REVIEW:-}
+      QG_LLM_MODEL_REVIEW: ${QG_LLM_MODEL_REVIEW:-}
       QG_LLM_JSON_MODE_REVIEW: ${QG_LLM_JSON_MODE_REVIEW:-1}
-      QG_LLM_PROVIDER_SECURITY: ${QG_LLM_PROVIDER_SECURITY:-ollama}
-      QG_LLM_MODEL_SECURITY: ${QG_LLM_MODEL_SECURITY:-qwen3:8b}
+      QG_LLM_PROVIDER_SECURITY: ${QG_LLM_PROVIDER_SECURITY:-}
+      QG_LLM_MODEL_SECURITY: ${QG_LLM_MODEL_SECURITY:-}
       QG_LLM_JSON_MODE_SECURITY: ${QG_LLM_JSON_MODE_SECURITY:-1}
-      QG_LLM_PROVIDER_QA: ${QG_LLM_PROVIDER_QA:-ollama}
-      QG_LLM_MODEL_QA: ${QG_LLM_MODEL_QA:-qwen3:8b}
+      QG_LLM_PROVIDER_QA: ${QG_LLM_PROVIDER_QA:-}
+      QG_LLM_MODEL_QA: ${QG_LLM_MODEL_QA:-}
       QG_LLM_JSON_MODE_QA: ${QG_LLM_JSON_MODE_QA:-1}
       QG_LLM_TIMEOUT: ${QG_LLM_TIMEOUT:-300}
-      # Host ollama by default (full machine resources); the "llm" profile
-      # container is the fallback -> then use http://ollama:11434/v1.
+      # Local profile: host ollama (full machine resources); the "llm"
+      # profile container is the fallback -> http://ollama:11434/v1.
       QG_LLM_BASE_URL: ${QG_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       DRY_RUN: ${DRY_RUN:-false}
     extra_hosts:
