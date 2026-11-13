@@ -20,10 +20,10 @@ RUN apt-get update \
 ARG OSV_SCANNER_VERSION=2.7.1
 RUN arch="$(dpkg --print-architecture)" && cd /tmp \
     && curl -fsSLO "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_${arch}" \
-    && curl -fsSLO "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_SHA256_checksums.txt" \
-    && grep " osv-scanner_linux_${arch}$" osv-scanner_SHA256_checksums.txt | sha256sum -c - \
+    && curl -fsSLO "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_SHA256SUMS" \
+    && grep " osv-scanner_linux_${arch}$" osv-scanner_SHA256SUMS | sha256sum -c - \
     && install -m 0755 "osv-scanner_linux_${arch}" /usr/local/bin/osv-scanner \
-    && rm -f osv-scanner_linux_* osv-scanner_SHA256_checksums.txt
+    && rm -f osv-scanner_linux_* osv-scanner_SHA256SUMS
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.24@sha256:2381d6aa60c326b71fd40023f921a0a3b8f91b14d5db6b90402e65a635053709 /uv /uvx /usr/local/bin/
 
