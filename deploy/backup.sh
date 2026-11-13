@@ -36,16 +36,26 @@ docker compose exec -T postgres \
 
 echo "backup written: ${OUT} ($(du -h "${OUT}" | cut -f1))"
 
+REMOTE_RC=0
 if [[ -n "${QG_BACKUP_S3_URI:-}" ]]; then
     if command -v aws >/dev/null 2>&1; then
         DEST="${QG_BACKUP_S3_URI%/}/$(basename "${OUT}")"
-        aws s3 cp "${OUT}" "${DEST}"
-        echo "backup uploaded: ${DEST}"
+        if aws s3 cp "${OUT}" "${DEST}"; then
+            echo "backup uploaded: ${DEST}"
+        else
+            echo "S3 upload failed — dump kept locally only" >&2
+            REMOTE_RC=1
+        fi
     else
         echo "QG_BACKUP_S3_URI set but aws CLI not on PATH —" \
              "dump kept locally only" >&2
+        REMOTE_RC=1
     fi
 fi
 
 find "${BACKUP_DIR}" -name 'qualitygate-*.dump.gz' \
     -mtime "+${RETENTION_DAYS}" -delete
+
+# A declared-but-failed off-box tier fails the job so cron/systemd
+# surfaces it — local pruning above still ran.
+exit "${REMOTE_RC}"
