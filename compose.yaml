@@ -15,9 +15,16 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - "5432:5432"
+      # Loopback only (FR-P9): local CLI runs reach postgres on
+      # localhost:5432, but it is never reachable from outside the host.
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
 
   mcp-server:
+    # FR-P9: debug-only — the unauthenticated SSE endpoint exposes
+    # spawn_process (arbitrary command execution). Never part of the
+    # service stack; opt in with `docker compose --profile debug up -d`.
+    profiles: ["debug"]
     build:
       context: .
       dockerfile: packages/mcp-server/Dockerfile
@@ -27,7 +34,7 @@ services:
     # Runs the MCP server over SSE so it can be attached for manual debugging.
     command: ["python", "-m", "quality_gate_mcp.server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: "no"
 
   orchestrator:
@@ -97,7 +104,7 @@ services:
       - worktrees:/var/quality-gate/worktrees  # ephemeral qg-* clones
     expose:
       - "8088"  # compose network only — never published
-    restart: "no"
+    restart: unless-stopped
 
   nginx:
     image: nginx:1.27-alpine
@@ -106,8 +113,30 @@ services:
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
-      - "${QG_INGRESS_PORT:-8089}:8089"  # the ONLY public port
-    restart: "no"
+      # Loopback only (FR-P9/P10): direct access is for local tunnels and
+      # debugging; the public surface in production is caddy on :443.
+      - "127.0.0.1:${QG_INGRESS_PORT:-8089}:8089"
+    restart: unless-stopped
+
+  # Public TLS endpoint (FR-P10): the ONLY internet-facing port in
+  # production. Caddy terminates TLS (auto certificates), then proxies to
+  # the rate-limiting nginx on the internal network:
+  #   GitHub --HTTPS:443--> caddy --> nginx:8089 --> ingress:8088
+  # Opt-in profile so the local-tunnel path keeps working without a
+  # domain: `docker compose --profile tls up -d`
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2.8-alpine
+    depends_on:
+      - nginx
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"    # ACME http-01 challenge + HTTPS redirect
+      - "443:443"
+    restart: unless-stopped
 
   # Fallback LLM when the host has no ollama of its own (the ingress
   # defaults to host.docker.internal). With this profile on, set
@@ -121,9 +150,11 @@ services:
       - ollama-models:/root/.ollama
     expose:
       - "11434"
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   pgdata:
   worktrees:
   ollama-models:
+  caddy-data:
+  caddy-config:

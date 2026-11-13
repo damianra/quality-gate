@@ -1,0 +1,19 @@
+# Public TLS endpoint for the quality-gate webhook (FR-P10).
+#
+# Caddy terminates TLS with automatic certificates (Let's Encrypt) and
+# proxies to the internal rate-limiting nginx:
+#
+#   GitHub --HTTPS:443--> caddy --> nginx:8089 --> ingress:8088
+#
+# QG_PUBLIC_HOST must be set to the public hostname resolving to this
+# machine (e.g. qg.example.com) — it is required for certificate
+# issuance. Register the webhook as:
+#   https://$QG_PUBLIC_HOST/github/webhook
+#
+# For local testing without a domain, skip this file and expose the
+# loopback nginx port through a tunnel instead
+# (docs/local-webhook-setup.md).
+
+{$QG_PUBLIC_HOST} {
+	reverse_proxy nginx:8089
+}
