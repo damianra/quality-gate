@@ -36,31 +36,40 @@ WorkingDirectory=/opt/quality-gate
 ExecStart=/opt/quality-gate/deploy/backup.sh
 ```
 
-The script keeps a local tier only. Copy `${BACKUP_DIR}` off-box
-(`rsync`, `rclone`, object storage) from a wrapper for real disaster
-recovery — a dump on the same disk as `pgdata` protects against
-accidental drops, not disk loss.
+The script keeps a local tier by default. For real disaster recovery
+set `QG_BACKUP_S3_URI` (e.g. `s3://my-bucket/quality-gate`) in the
+cron/timer environment — each dump is then shipped off-box with
+`aws s3 cp` (FR-P27). Credentials come from the instance IAM role or
+`AWS_PROFILE`, never from the script. For non-AWS stores use `rclone`
+in a wrapper (`rclone copy ./backups remote:bucket/quality-gate`).
+A dump on the same disk as `pgdata` protects against accidental
+drops, not disk loss.
 
 ## Restore
 
 Run against a compose stack whose `postgres` is up (other services may
-stay down):
+stay down). Credentials resolve inside the container from `POSTGRES_*`
+(FR-P24) — the `sh -c` wrapper keeps the commands credential-free:
 
 ```bash
+# 0. If the dump lives off-box, fetch it first (FR-P27):
+aws s3 cp s3://my-bucket/quality-gate/qualitygate-2026-11-13-023000.dump.gz \
+    backups/
+
 # 1. Stop writers so no run mutates the DB mid-restore.
 docker compose stop ingress orchestrator
 
 # 2. Restore into a clean database (custom format; --clean drops objects).
 gunzip -c backups/qualitygate-2026-11-13-023000.dump.gz \
   | docker compose exec -T postgres \
-      pg_restore -U qualitygate -d qualitygate --clean --if-exists
+      sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists'
 
 # 3. Restart the stack.
 docker compose up -d
 
 # 4. Verify: rows are back and the service is ready.
 docker compose exec -T postgres \
-    psql -U qualitygate -c "SELECT count(*) FROM run_metrics;"
+    sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM run_metrics;"'
 curl -fsS https://<QG_PUBLIC_HOST>/readyz
 ```
 
