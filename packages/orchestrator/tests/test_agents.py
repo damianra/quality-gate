@@ -61,20 +61,25 @@ def test_qa_commands_python_compile_check(monkeypatch, tmp_path):
     monkeypatch.setattr(
         agents.shutil, "which", _which_only({"python3", "node"}))
     cmds = agents._qa_commands(tmp_path, ["app.py"])
-    cmd = next(c for c in cmds if c[1] == "-c")
-    assert cmd[0] == "/usr/bin/python3" and cmd[-1] == "app.py"
-    assert "compile(" in cmd[2]
+    argv, executes = next(c for c in cmds if c[0][1] == "-c")
+    assert argv[0] == "/usr/bin/python3" and argv[-1] == "app.py"
+    assert "compile(" in argv[2]
+    assert executes is False  # syntax-only: never runs PR code (FR-P12)
 
 
 def test_qa_commands_go_vet_and_cargo_check(monkeypatch, tmp_path):
-    """FR-L2: go.mod + .go change -> go vet; Cargo.toml + .rs -> cargo."""
+    """FR-L2: go.mod + .go change -> go vet; Cargo.toml + .rs -> cargo.
+
+    FR-P12: both are flagged as *executing* validators — they run
+    PR-controlled code (build.rs, proc-macros, cgo).
+    """
     (tmp_path / "go.mod").write_text("module x\n")
     (tmp_path / "Cargo.toml").write_text("[package]\nname = 'x'\n")
     monkeypatch.setattr(
         agents.shutil, "which", _which_only({"go", "cargo"}))
     cmds = agents._qa_commands(tmp_path, ["main.go", "lib.rs"])
-    assert ["go", "vet", "./..."] in cmds
-    assert ["cargo", "check"] in cmds
+    assert (["go", "vet", "./..."], True) in cmds
+    assert (["cargo", "check"], True) in cmds
 
 
 def test_qa_commands_manifest_without_code_change(monkeypatch, tmp_path):
@@ -432,6 +437,38 @@ def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     assert "LLM: Untested edge case" in titles   # enrichment merged
     assert out["llm_calls"][0]["role"] == "qa"
     assert out["processes"] == []
+
+
+def test_qa_specialist_skips_executing_validators(monkeypatch, tmp_path):
+    """FR-P12: QG_EXEC_VALIDATORS=0 -> go vet/cargo check emit an info
+    finding instead of running PR-controlled code."""
+    _fake_cfg(monkeypatch, meta={
+        "text": "[]",
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        "finish_reason": "stop", "truncated": False, "duration_s": 0.1,
+    })
+    (tmp_path / "go.mod").write_text("module x\n")
+    (tmp_path / "main.go").write_text("package main\n")
+    monkeypatch.setattr(agents.config, "EXEC_VALIDATORS", False)
+    monkeypatch.setattr(
+        agents.shutil, "which", _which_only({"go"}))
+    spawned = []
+    monkeypatch.setattr(
+        agents.mcp_tools, "spawn_process",
+        lambda *a, **k: spawned.append(a) or {
+            "pgid": 0, "exit_code": 0, "timed_out": False,
+            "duration_s": 0.01, "stdout": "", "stderr": ""})
+    out = agents.qa_specialist(_state(
+        repo_path=str(tmp_path),
+        files=[{"filename": "main.go"}],
+    ))
+    titles = {f["title"] for f in out["findings"]}
+    assert "Executing validators skipped" in titles
+    assert "go vet ./..." in next(
+        f["detail"] for f in out["findings"]
+        if f["title"] == "Executing validators skipped")
+    assert spawned == []               # nothing was executed
+    assert out["processes"] == []      # no process metrics recorded
 
 
 def test_qa_specialist_enriches_normal_path(monkeypatch, tmp_path):

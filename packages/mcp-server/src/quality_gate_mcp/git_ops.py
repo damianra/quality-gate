@@ -56,6 +56,38 @@ def parse_remote(url: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Environment scrubbing (FR-P11)
+# --------------------------------------------------------------------------- #
+
+# Vars a spawned child may inherit. Everything else — GITHUB_TOKEN,
+# DATABASE_URL, GITHUB_WEBHOOK_SECRET, QG_LLM_*, *_API_KEY — is stripped
+# so children running PR-controlled code never see service secrets in
+# their environment (``/proc/<pid>/environ`` invariant).
+_SAFE_ENV_VARS = frozenset({
+    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR",
+    "USER", "LOGNAME", "SHELL",
+    # Corporate egress for network-reaching scanners (osv, npm audit).
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "no_proxy",
+    # Toolchain discovery used by validators/scanners.
+    "CARGO_HOME", "RUSTUP_HOME", "GOROOT", "GOPATH", "GOCACHE",
+    "GOMODCACHE", "GOPROXY", "GOFLAGS", "NVM_DIR", "NODE_PATH",
+    "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV",
+    "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+})
+
+
+def scrub_env() -> dict[str, str]:
+    """Minimal safe environment for a spawned child (FR-P11).
+
+    Allowlist-only: secrets and service config never propagate to
+    validators/scanners. Callers needing secrets in the child — git
+    auth via ``GIT_CONFIG_*`` — pass an explicit ``env`` instead.
+    """
+    return {k: v for k, v in os.environ.items() if k in _SAFE_ENV_VARS}
+
+
+# --------------------------------------------------------------------------- #
 # Subprocess primitives
 # --------------------------------------------------------------------------- #
 
@@ -143,6 +175,10 @@ def spawn_tracked(
     whole process group is terminated before returning, so no orphan can
     escape; the pgid is still returned so callers may double-check via
     ``os.killpg(pgid, 0)``.
+
+    FR-P11: ``env=None`` gives the child the :func:`scrub_env` allowlist,
+    not the parent's full environment — validators never inherit
+    secrets. An explicit ``env`` (git auth headers) bypasses scrubbing.
     """
     cwd = _validate_repo(repo_path)
     timeout = timeout if timeout is not None else config.PROCESS_TIMEOUT
@@ -158,7 +194,7 @@ def spawn_tracked(
             text=True,
             shell=False,
             start_new_session=True,  # -> own process group, killable via killpg
-            env=env,
+            env=env if env is not None else scrub_env(),
         )
         pgid = os.getpgid(proc.pid)
     except FileNotFoundError:

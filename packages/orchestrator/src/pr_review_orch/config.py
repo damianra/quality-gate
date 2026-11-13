@@ -19,6 +19,14 @@ MAX_FILES_PAGES = int(os.environ.get("QG_MAX_FILES_PAGES", "5"))
 #: compile() check, go vet, cargo check).
 QA_PROCESS_TIMEOUT = int(os.environ.get("QG_QA_PROCESS_TIMEOUT", "120"))
 
+#: FR-P12 validator execution policy: validators that run PR-controlled
+#: code (``cargo check`` compiles build.rs/proc-macros, ``go vet`` may
+#: build cgo) are gated behind this flag. Service deployments set
+#: ``QG_EXEC_VALIDATORS=0`` (untrusted checkouts); CLI/Action runs keep
+#: the default 1 — the operator chose the checkout.
+EXEC_VALIDATORS = os.environ.get(
+    "QG_EXEC_VALIDATORS", "1").lower() not in ("0", "false", "no")
+
 #: FR-L1 file extensions that activate the QA specialist — multi-language
 #: code set; docs/config/data files never trigger QA on their own.
 #: Comma/space-separated override via ``QG_QA_CODE_EXTS``, leading dot
