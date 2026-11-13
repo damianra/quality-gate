@@ -129,6 +129,9 @@ every variable below with defaults. `compose.yaml` picks it up automatically.
   least-privilege permissions, and onboarding a repo is "install the
   app". The PAT stays supported for local runs.
 - `DATABASE_URL` — Postgres checkpointer DSN (optional)
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — compose-stack
+  credentials (required for `compose up`, FR-P24); the services'
+  internal DSN is composed from them
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — orchestrator inputs
 - `QG_*` — timeouts and scanner thresholds (see `config.py` files)
 - `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` — blast-radius caps: agents

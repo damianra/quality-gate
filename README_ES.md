@@ -133,6 +133,9 @@ levanta automáticamente.
   de la app con permisos mínimos, y dar de alta un repo es "instalar la
   app". El PAT sigue soportado para corridas locales.
 - `DATABASE_URL` — DSN del checkpointer Postgres (opcional)
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — credenciales
+  del stack compose (requeridas para `compose up`, FR-P24); el DSN
+  interno de los servicios se compone a partir de ellas
 - `REPO_PATH`, `PR_NUMBER`, `DRY_RUN` — inputs del orquestador
 - `QG_*` — timeouts y umbrales del scanner (ver `config.py` de cada paquete)
 - `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS` — límites del blast radius:
