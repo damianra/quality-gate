@@ -12,7 +12,10 @@ name: quality-gate
 #   image: ghcr.io/.../pr-review-orchestrator@sha256:<digest>
 # Images are amd64-only — ARM hosts keep the `build:` path of
 # compose.yaml (the Dockerfiles resolve the arch at build time).
-# `!reset null` clears the base file's build: so compose never builds.
+# `!reset null` clears the base file's build: so compose never builds —
+# requires Docker Compose v2.24.4+ on the prod host.
+# The ghcr.io/damianra/quality-gate namespace is hardcoded: a repo
+# rename or fork must update these refs to match github.repository.
 
 services:
   orchestrator:
