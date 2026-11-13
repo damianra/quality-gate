@@ -1,17 +1,24 @@
 name: quality-gate
 
+# FR-P24: credentials resolve from .env — a read of this file alone no
+# longer yields working secrets. The services' DATABASE_URL is composed
+# once here and referenced by anchor below.
+x-database-url: &database-url
+  postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+
 services:
   postgres:
     # FR-P14: pinned by index digest (dependabot docker bumps it).
     image: postgres:16-alpine@sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663
     environment:
-      POSTGRES_USER: qualitygate
-      POSTGRES_PASSWORD: qualitygate
-      POSTGRES_DB: qualitygate
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qualitygate -d qualitygate"]
+      # $$ escapes to the container env at runtime.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -47,7 +54,7 @@ services:
         condition: service_healthy
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      DATABASE_URL: postgresql://qualitygate:qualitygate@postgres:5432/qualitygate
+      DATABASE_URL: *database-url
       REPO_PATH: /work
       PR_NUMBER: ${PR_NUMBER:-}
       DRY_RUN: ${DRY_RUN:-false}
@@ -73,7 +80,7 @@ services:
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
-      DATABASE_URL: postgresql://qualitygate:qualitygate@postgres:5432/qualitygate
+      DATABASE_URL: *database-url
       QG_ALLOWED_REPOS: ${QG_ALLOWED_REPOS:-}
       QG_INGRESS_HOST: 0.0.0.0     # internal net only; nginx is the public surface
       QG_INGRESS_PORT: 8088
