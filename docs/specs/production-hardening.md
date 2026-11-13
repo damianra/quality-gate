@@ -1,9 +1,8 @@
 # Spec — production hardening (service mode)
 
-**Status:** implemented — all FR-P1..P19 landed via PRs #35–#52
-(FR-P1 #35 · FR-P9/P10 #36 · FR-P11/P12 #37 · FR-P8 #38 · FR-P19 #39 ·
-FR-P2 #40 · FR-P4 #41 · FR-P5/P6/P7 #42 · FR-P3 #43 · FR-P15/P16 #44 ·
-FR-P17 #45 · FR-P13/P14 #46 · FR-P18 #52). **Scope:** amends SPEC.md
+**Status:** implemented for FR-P1..P19 (PRs #35–#52); FR-P20..P22
+(steady-state follow-ups, §2 last section) in progress.
+**Scope:** amends SPEC.md
 FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
 FR-O9 (runner signature), §7 (configuration surface), §8 (delivery
 surfaces) and §9 (testing). Requirement IDs `FR-P*`/`NFR-P*` are
@@ -99,7 +98,9 @@ Every fix is sized for tens of PRs/day.
   `qg-*` worktrees also kills leftover validator/scanner processes from
   crashed runs (same signature set as the CI `pgrep` assertion) before
   the directories are removed — a `kill -9`'d worker must not leak
-  `tsc`/`cargo`/`osv-scanner` children.
+  `tsc`/`cargo`/`osv-scanner` children. Refined by FR-P20: signature
+  matches are killed only when attributable to a `qg-*` worktree, so
+  unrelated developer processes on the shared host are never hit.
 
 ### Enforcement
 
@@ -217,6 +218,34 @@ Every fix is sized for tens of PRs/day.
   the deployment default for a CPU-only box changes from `local` to
   `deterministic` or `api`.
 
+### Steady-state hardening (follow-ups)
+
+- **FR-P20 Self-owned orphan sweep.** The FR-P7 signature sweep only
+  kills process groups the service could have spawned: a `pgrep` hit is
+  SIGKILLed only when its leader's cwd resolves inside
+  `QG_WORKTREE_ROOT` (the `qg-*` worktrees) or its argv references a
+  `qg-*` path. A developer's own `cargo check`/`tsc` running elsewhere
+  on the shared VM must never be killed — verified by a test that
+  plants a decoy process outside the worktree root.
+- **FR-P21 Failure-matrix end-to-end coverage.** A `tests/e2e/` suite
+  (pytest `e2e` marker, excluded from the default unit run) exercises
+  the service path against injected faults and asserts the *externally
+  visible* outcome — the unit suite alone proved each mechanism, this
+  proves the composition: a signed webhook → `pending_runs` row →
+  commit status `pending` → run → `success`/`failure`/`error`;
+  Postgres down at enqueue → `500` (GitHub retries), nothing queued;
+  process restart mid-queue → recovery re-runs `queued`/`running` rows;
+  a worker killed mid-run → startup leaves no validator processes
+  matching the FR-P7 signature and no `qg-*` dirs; LLM unreachable →
+  run completes degraded, not hung.
+- **FR-P22 Operations runbook.** `docs/ops-runbook.md` consolidates
+  what today is scattered across READMEs and `docs/`: production
+  bring-up (TLS profile, webhook registration, App install vs PAT,
+  branch protection requiring `quality-gate`), day-2 ops (`/readyz`,
+  heartbeat, failed-run queries, queue inspection), the backup/restore
+  link, the NFR-P1 external port-scan verification procedure, and
+  recovery procedures (restart, DB restore, stuck `pending_runs`).
+
 ## 3. Contracts
 
 ### 3.1 Commit status (FR-P8)
@@ -288,4 +317,18 @@ FR-P1 (thread_id), FR-P11/P12 (env scrub + validator policy), FR-P8
 (delivery guarantees), FR-P15/P16 (observability), FR-P17 (backups),
 FR-P14 (supply chain), FR-P13 (image). Phase 2 (steady state): FR-P18
 (GitHub App), FR-P7 hardening, e2e coverage of the failure matrix
-(SPEC.md §9 extension), ops runbook.
+(SPEC.md §9 extension), ops runbook. Phase 2 items landed as FR-P18
+(#52) plus FR-P20 (self-owned sweep), FR-P21 (failure-matrix e2e) and
+FR-P22 (ops runbook).
+
+## 6. Deferred backlog (explicit non-goals for now)
+
+- **No-egress validator sandboxing.** `QG_EXEC_VALIDATORS=0` mitigates
+  `cargo check`/`go vet` executing PR code; real containment needs
+  netns/seccomp or a microVM — a separate effort.
+- **Per-repo configuration** (`.quality-gate.yml`). If implemented, it
+  must be read from the *base* branch or the server side — never from
+  the PR's own tree, which the PR author controls.
+- **LLM circuit breaker.** The existing per-call timeout + graceful
+  degradation already prevents hangs; a breaker would only save
+  latency on doomed calls — an optimization, not a gap.
