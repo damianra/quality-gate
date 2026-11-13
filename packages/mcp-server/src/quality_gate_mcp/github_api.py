@@ -101,6 +101,25 @@ class GitHubClient:
         r.raise_for_status()
         return r.json()
 
+    # -- commit statuses (FR-P8 merge gating) -------------------------------- #
+
+    def create_commit_status(
+        self, slug: str, sha: str, state: str,
+        context: str = "quality-gate", description: str = "",
+        target_url: str = "",
+    ) -> dict[str, Any]:
+        """POST /repos/{slug}/statuses/{sha} — classic commit status."""
+        body: dict[str, Any] = {
+            "state": state,
+            "context": context,
+            "description": description[:140],
+        }
+        if target_url:
+            body["target_url"] = target_url
+        r = self._client.post(f"/repos/{slug}/statuses/{sha}", json=body)
+        r.raise_for_status()
+        return r.json()
+
     # -- comments ------------------------------------------------------------ #
 
     def list_issue_comments(self, slug: str, issue_number: int) -> list[dict[str, Any]]:

@@ -59,7 +59,7 @@ El chequeo end-to-end más rápido — corre el grafo completo contra un
 (`--dry-run`) y usa el checkpointer en memoria (sin Postgres):
 
 ```bash
-export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write
+export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write + repo:status
 export REPO_PATH=/path/al/checkout    # repo con la rama del PR chequeada
 export PR_NUMBER=123
 uv run --package pr-review-orchestrator pr-review --dry-run
@@ -208,6 +208,13 @@ docker compose up -d ingress nginx
 QG_PUBLIC_HOST=qg.example.com \
 docker compose --profile tls up -d
 # La URL del webhook queda https://qg.example.com/github/webhook.
+
+# Cada delivery aceptado publica un commit status en el head sha del PR
+# (context `quality-gate`, FR-P8): pending -> success/failure/error.
+# Requerí ese check en branch protection ("require status checks
+# before merging") para que el veredicto realmente bloquee merges — el
+# token necesita repo:status (clásico) o Commit statuses: write
+# (fine-grained).
 
 # LLM: el ingress apunta por defecto a un ollama del HOST
 # (http://localhost:11434, vía host.docker.internal) para que el modelo

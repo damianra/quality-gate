@@ -662,6 +662,21 @@ def spawn_process(
     return git_ops.spawn_tracked(repo_path, command, args or [], timeout=timeout)
 
 
+def post_commit_status(
+    slug: str, sha: str, state: str, description: str = "",
+    context: str = "quality-gate",
+) -> dict[str, Any]:
+    """Post a commit status on ``sha`` (FR-P8: real merge gating).
+
+    ``state`` is one of ``pending``/``success``/``failure``/``error``.
+    Best-effort — callers swallow exceptions and log; the verdict
+    comment remains the human-readable channel (INV-4).
+    """
+    with GitHubClient() as gh:
+        return gh.create_commit_status(
+            slug, sha, state, context=context, description=description)
+
+
 def post_verdict(
     repo_path: str,
     pr_number: int,

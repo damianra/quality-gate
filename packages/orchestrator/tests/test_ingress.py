@@ -177,7 +177,19 @@ def test_healthz(client) -> None:
 
 # --- run queue ------------------------------------------------------------- #
 
-def test_run_once_removes_worktree(monkeypatch, tmp_path) -> None:
+@pytest.fixture
+def _stub_status(monkeypatch):
+    """FR-P8: record commit statuses instead of hitting the API."""
+    posted: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        ingress.mcp_tools, "post_commit_status",
+        lambda repo, sha, state, desc="", ctx="":
+            posted.append((repo, sha, state)),
+    )
+    return posted
+
+
+def test_run_once_removes_worktree(monkeypatch, tmp_path, _stub_status) -> None:
     worktree = tmp_path / "qg-run"
     worktree.mkdir()
     monkeypatch.setattr(
@@ -198,7 +210,7 @@ def test_run_once_removes_worktree(monkeypatch, tmp_path) -> None:
 
 
 def test_run_once_removes_worktree_on_failure(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, _stub_status
 ) -> None:
     worktree = tmp_path / "qg-run"
     worktree.mkdir()
@@ -213,6 +225,87 @@ def test_run_once_removes_worktree_on_failure(
     event = {"repo": "a/b", "pr_number": 3,
              "clone_url": "u", "head_sha": "s"}
     asyncio.run(ingress._run_once(event))  # logs, never propagates
+    assert not worktree.exists()
+
+
+def test_run_once_posts_pending_and_success(
+    monkeypatch, tmp_path, _stub_status
+) -> None:
+    """FR-P8: pending -> success on the delivery sha gates the commit."""
+    worktree = tmp_path / "qg-run"
+    worktree.mkdir()
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr", lambda *_a: worktree)
+    monkeypatch.setattr(
+        ingress.graph, "run_pr_review",
+        lambda *_a, **_k: {"verdict": {"approve": True}})
+    event = {"repo": "a/b", "pr_number": 3,
+             "clone_url": "u", "head_sha": "deadbeef"}
+    asyncio.run(ingress._run_once(event))
+    assert _stub_status == [
+        ("a/b", "deadbeef", "pending"),
+        ("a/b", "deadbeef", "success"),
+    ]
+
+
+def test_run_once_posts_failure_on_reject(
+    monkeypatch, tmp_path, _stub_status
+) -> None:
+    """FR-P8: a rejected verdict posts ``failure`` — the gate blocks."""
+    worktree = tmp_path / "qg-run"
+    worktree.mkdir()
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr", lambda *_a: worktree)
+    monkeypatch.setattr(
+        ingress.graph, "run_pr_review",
+        lambda *_a, **_k: {"verdict": {"approve": False}})
+    event = {"repo": "a/b", "pr_number": 3,
+             "clone_url": "u", "head_sha": "deadbeef"}
+    asyncio.run(ingress._run_once(event))
+    assert _stub_status[-1] == ("a/b", "deadbeef", "failure")
+
+
+def test_run_once_posts_error_on_crash(
+    monkeypatch, tmp_path, _stub_status
+) -> None:
+    """FR-P8: a crashed run posts ``error`` — never silently pending."""
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr",
+        lambda *_a: (_ for _ in ()).throw(RuntimeError("clone failed")))
+
+    def boom(*_a, **_k):
+        raise AssertionError("should not reach the graph")
+
+    monkeypatch.setattr(ingress.graph, "run_pr_review", boom)
+    event = {"repo": "a/b", "pr_number": 3,
+             "clone_url": "u", "head_sha": "deadbeef"}
+    asyncio.run(ingress._run_once(event))
+    assert _stub_status == [
+        ("a/b", "deadbeef", "pending"),
+        ("a/b", "deadbeef", "error"),
+    ]
+
+
+def test_run_once_survives_status_failure(
+    monkeypatch, tmp_path
+) -> None:
+    """FR-P8: a status-post failure degrades to a log — run completes."""
+    worktree = tmp_path / "qg-run"
+    worktree.mkdir()
+    monkeypatch.setattr(
+        ingress.fetch, "clone_pr", lambda *_a: worktree)
+    monkeypatch.setattr(
+        ingress.mcp_tools, "post_commit_status",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("api down")))
+    ran: list[bool] = []
+    monkeypatch.setattr(
+        ingress.graph, "run_pr_review",
+        lambda *_a, **_k: ran.append(True)
+        or {"verdict": {"approve": True}})
+    event = {"repo": "a/b", "pr_number": 3,
+             "clone_url": "u", "head_sha": "deadbeef"}
+    asyncio.run(ingress._run_once(event))
+    assert ran == [True]
     assert not worktree.exists()
 
 

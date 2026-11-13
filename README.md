@@ -57,7 +57,7 @@ checkout** of the PR head, posts nothing to GitHub (`--dry-run`) and
 uses the in-memory checkpointer (no Postgres needed):
 
 ```bash
-export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write
+export GITHUB_TOKEN=ghp_...           # contents:read + pull_requests/issues:write + repo:status
 export REPO_PATH=/path/to/checkout    # repo checked out at the PR branch
 export PR_NUMBER=123
 uv run --package pr-review-orchestrator pr-review --dry-run
@@ -198,6 +198,12 @@ docker compose up -d ingress nginx
 QG_PUBLIC_HOST=qg.example.com \
 docker compose --profile tls up -d
 # Webhook URL becomes https://qg.example.com/github/webhook.
+
+# Each accepted delivery posts a commit status on the PR head sha
+# (context `quality-gate`, FR-P8): pending -> success/failure/error.
+# Require that check in branch protection ("require status checks
+# before merging") so the verdict actually blocks merges — the token
+# needs repo:status (classic) or Commit statuses: write (fine-grained).
 
 # LLM: the ingress defaults to a HOST ollama (http://localhost:11434,
 # reached via host.docker.internal) so the model gets full machine
