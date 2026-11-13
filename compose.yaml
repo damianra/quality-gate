@@ -6,6 +6,14 @@ name: quality-gate
 x-database-url: &database-url
   postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
 
+# FR-P25: bounded json-file logs on every service — an unattended host
+# must not fill its disk. Override per deployment via env.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${QG_LOG_MAX_SIZE:-10m}
+    max-file: ${QG_LOG_MAX_FILES:-5}
+
 services:
   postgres:
     # FR-P14: pinned by index digest (dependabot docker bumps it).
@@ -27,6 +35,7 @@ services:
       # localhost:5432, but it is never reachable from outside the host.
       - "127.0.0.1:5432:5432"
     restart: unless-stopped
+    logging: *default-logging
 
   mcp-server:
     # FR-P9: debug-only — the unauthenticated SSE endpoint exposes
@@ -44,6 +53,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     restart: "no"
+    logging: *default-logging
 
   orchestrator:
     build:
@@ -62,6 +72,7 @@ services:
       # Mount the repository under review read-write (needed to run tsc/node --check).
       - ${REPO_UNDER_TEST:-./target-repo}:/work
     restart: "no"
+    logging: *default-logging
 
   # --- Service mode (FR-O19..O22): webhook -> clone -> review -> comment -- #
 
@@ -124,6 +135,7 @@ services:
     expose:
       - "8088"  # compose network only — never published
     restart: unless-stopped
+    logging: *default-logging
 
   nginx:
     image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
@@ -136,6 +148,7 @@ services:
       # debugging; the public surface in production is caddy on :443.
       - "127.0.0.1:${QG_INGRESS_PORT:-8089}:8089"
     restart: unless-stopped
+    logging: *default-logging
 
   # Public TLS endpoint (FR-P10): the ONLY internet-facing port in
   # production. Caddy terminates TLS (auto certificates), then proxies to
@@ -156,6 +169,7 @@ services:
       - "80:80"    # ACME http-01 challenge + HTTPS redirect
       - "443:443"
     restart: unless-stopped
+    logging: *default-logging
 
   # Fallback LLM when the host has no ollama of its own (the ingress
   # defaults to host.docker.internal). With this profile on, set
@@ -172,6 +186,7 @@ services:
     expose:
       - "11434"
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   pgdata:
