@@ -115,3 +115,10 @@ SHUTDOWN_GRACE_S = float(os.environ.get("QG_SHUTDOWN_GRACE_S", "120"))
 RETRY_ATTEMPTS = int(os.environ.get("QG_RETRY_ATTEMPTS", "3"))
 #: FR-P3: backoff base seconds between clone attempts.
 RETRY_BACKOFF_S = float(os.environ.get("QG_RETRY_BACKOFF_S", "2"))
+
+#: FR-P15: log level for the JSON-formatted service logs.
+LOG_LEVEL = os.environ.get("QG_LOG_LEVEL", "INFO")
+
+#: FR-P16: dead-man ping hit after every completed run (e.g.
+#: healthchecks.io). Empty disables the heartbeat.
+HEARTBEAT_URL = os.environ.get("QG_HEARTBEAT_URL", "")

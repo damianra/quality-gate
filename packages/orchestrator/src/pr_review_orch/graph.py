@@ -17,7 +17,7 @@ from langgraph.graph import END, START, StateGraph
 
 from quality_gate_mcp import git_ops, tools as mcp_tools
 
-from . import agents, cleanup, config, metrics, scope
+from . import agents, cleanup, config, logs, metrics, scope
 from .state import PRReviewState
 
 logger = logging.getLogger("pr-review-orch")
@@ -290,6 +290,9 @@ def run_pr_review(repo_path: str, pr_number: int, dry_run: bool = False,
     }
     run_config = {"configurable": {"thread_id": _thread_id(slug, pr_number)}}
     run_id = run_config["configurable"]["thread_id"]
+    # FR-P15: correlate run logs with the run_metrics key (contextvar
+    # already set by the ingress drain — this also covers CLI/Action).
+    logs.run_id_var.set(run_id)
 
     try:
         if config.DATABASE_URL:

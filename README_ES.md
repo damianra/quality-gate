@@ -295,6 +295,18 @@ entorno depurado — los secretos nunca llegan al env de un subproceso
 PR (`cargo check`, `go vet`) están deshabilitados por defecto en modo
 servicio (`QG_EXEC_VALIDATORS=0`, FR-P12).
 
+Operación (FR-P15/P16): los logs del servicio emiten un objeto JSON por
+registro a `QG_LOG_LEVEL`, correlacionados por `run_id`
+(`pr-review/{repo}/{pr}` — la misma clave que usa `run_metrics`), así
+que "qué pasó con el PR #N" es un grep o una query SQL.
+`GET /readyz` reporta alcanzabilidad de Postgres y profundidad de cola
+para monitoreo (distinto del liveness `/healthz`), y
+`QG_HEARTBEAT_URL` es un ping dead-man (p.ej. healthchecks.io) que se
+golpea tras cada run completado — el silencio más allá del intervalo
+del monitor significa que el servicio murió. Los runs fallidos se
+consultan con `SELECT * FROM run_metrics WHERE status <> 'ok'` y
+`SELECT * FROM pending_runs WHERE status = 'failed'`.
+
 ## CI
 
 - `mcp-ci.yml` / `orchestrator-ci.yml` — tests unitarios filtrados por `paths:`.

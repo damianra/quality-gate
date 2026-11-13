@@ -49,6 +49,23 @@ def enabled() -> bool:
     return bool(config.DATABASE_URL)
 
 
+def reachable() -> bool | None:
+    """Postgres liveness probe for ``/readyz`` (FR-P16).
+
+    ``None`` when no DSN is configured (Postgres is optional — local
+    in-memory mode), else a bounded ``SELECT 1``.
+    """
+    if not enabled():
+        return None
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return True
+    except Exception:  # noqa: BLE001 - probe must not raise
+        return False
+
+
 def _connect():
     return psycopg.connect(config.DATABASE_URL, connect_timeout=5)
 
