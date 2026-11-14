@@ -4,6 +4,8 @@
 follow-ups FR-P20 #55 · FR-P22 #56 · FR-P21 #57. Phase-3 deployment
 readiness implemented: FR-P23 #63 · FR-P24 #64 · FR-P25 #65 ·
 FR-P26 #66 · FR-P27 #67 · FR-P28 #68 · FR-P29 #69 · FR-P30 #70.
+Phase-4 local-host readiness spec'd from a rootless-podman host audit
+(2026-11-13): FR-P31..P35 open.
 **Scope:** amends SPEC.md
 FR-O19..O22 (service ingress/queue), FR-O5/FR-L2 (QA validators),
 FR-O9 (runner signature), §7 (configuration surface), §8 (delivery
@@ -304,6 +306,70 @@ Every fix is sized for tens of PRs/day.
   the previous tag and re-deploy. Schema evolution is additive
   (memoized `IF NOT EXISTS` DDL), so an older binary reads a newer
   database safely.
+
+### Local host readiness (phase-4 follow-ups — open)
+
+A host audit (2026-11-13: rootless podman 5.4, docker-compose 2.26,
+podman-compose 1.3, no Docker daemon) found the documented bring-up
+path implicitly assumes Docker. These items close the gap for
+podman-first dev hosts; none affects the production AWS path (FR-P28).
+
+- **FR-P31 Build-context hygiene.** The repo root ships a
+  `.dockerignore` covering `.venv/`, `.git/`, `__pycache__/`, `*.pyc`,
+  `.pytest_cache/`, `pgdata/`, `target-repo/` and `.env*`. Today
+  `COPY packages ./packages` bakes bytecode caches into both images
+  and every build uploads the local `.venv` (100 MB+) and `.git` as
+  context. `.env*` MUST stay out of the context even though no
+  instruction copies it — defense in depth against future `COPY .`
+  mistakes.
+
+- **FR-P32 Socketless container-runtime path.** The runbook documents
+  both podman bring-up paths: (a) `podman-compose` — the supported
+  socketless path for the dev `compose.yaml`, no `podman.socket`
+  required; and (b) `systemctl --user enable --now podman.socket` +
+  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` for
+  docker-compose v2. Path (b) is required for `compose.prod.yaml`:
+  its `build: !reset null` is a compose-spec extension podman-compose
+  does not implement. All image refs (compose + Dockerfiles) are
+  fully qualified (`docker.io/…`, `ghcr.io/…`) so pulls never depend
+  on host short-name aliases or `unqualified-search-registries` —
+  rootless podman hosts commonly ship neither. podman-compose also
+  does **not** expand `${VAR:-default}` for vars unset in `.env` —
+  the literal `${…}` string reaches the container, which flipped
+  `QG_EXEC_VALIDATORS` to truthy (executing validators ON in service
+  mode — an FR-P12 violation) on the audited host. Therefore every
+  compose `${VAR:-…}` var MUST be explicitly set in `.env` when the
+  socketless path is used; the checklist asserts
+  `podman inspect … | grep '\${'` comes back empty after `up`. The
+  dev bring-up checklist also covers the `REPO_UNDER_TEST` directory
+  existing and `PR_NUMBER` being a real PR — both are `.env`
+  placeholders that fail late today.
+
+- **FR-P33 Rootless bind-mount ownership.** Under rootless podman,
+  host-uid files appear as container `root`, so `appuser` (uid 10001)
+  cannot write a host-owned `REPO_UNDER_TEST` bind mount and `/work`
+  writes (validator caches) fail. Bring-up documents the fix —
+  `podman unshare chown -R 10001:10001 <dir>` (uses the subuid map) or
+  a world-writable dev-only dir — plus a write probe in the checklist.
+
+- **FR-P34 Postgres host-port coexistence.** The postgres host
+  publish becomes `127.0.0.1:${QG_PG_PORT:-5432}:5432` so the stack
+  coexists with another podman/compose stack already bound to 5432 —
+  observed on the dev host, where an unrelated project's postgres
+  publishes `0.0.0.0:5432` and would block ours. Internal
+  service-to-service traffic stays on `postgres:5432`; only the
+  loopback publish moves, and `.env.example` notes that a host-side
+  `DATABASE_URL` (local CLI runs) must match the chosen port.
+
+- **FR-P35 Storage-driver advisory.** A podman host reporting
+  `graph driver "overlay" overwritten by "vfs"` gets a documented
+  check (`podman info --format '{{.Store.GraphDriverName}}'`) and a
+  backup-first remediation note: `podman system reset` restores
+  overlay but destroys ALL local images, containers and volumes —
+  it MUST NOT run unattended on a host that also runs other stacks.
+  `vfs` is a supported-if-slower state (full layer copies, higher
+  disk use); the advisory exists so nobody "fixes" it by wiping a
+  neighbour's database.
 
 ## 3. Contracts
 

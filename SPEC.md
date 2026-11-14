@@ -404,6 +404,21 @@ duration lands in `node_durations`.
     reference an LLM finding emits that is not in `changed_files`
     is dropped to `null`, so fabricated file attributions cannot
     mislead reviewers.
+- **FR-O26 Pull-request review action.** Beyond the verdict comment
+  and the commit status (FR-P8), the service may submit a real
+  GitHub PR review (`POST /pulls/{n}/reviews`) so branch-protection
+  rules that require an approving review can be satisfied by the
+  bot. `QG_PR_REVIEW_ACTION` selects the behavior: `off` (default)
+  submits nothing; `comment` submits a neutral `COMMENT` review
+  after every run; `approve` submits `APPROVE` only when the verdict
+  is approved and `COMMENT` otherwise — `REQUEST_CHANGES` is never
+  sent, a false positive must not hard-block merges. Any value not in
+  `off|comment|approve` fails closed to `off`. GitHub rejects
+  reviews whose author is the PR's own author (self-approve, 422):
+  that and any other API failure MUST degrade to a log warning —
+  the verdict comment and the run lifecycle are never affected. The
+  GitHub App path (FR-P18) is the supported identity for this
+  feature: a PAT belonging to the PR author can never approve.
 
 ## 5. Non-functional requirements
 
@@ -506,7 +521,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT` |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34) |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
@@ -623,6 +638,7 @@ volatile during early history edits; commits are identified by subject):
 | 72 | `docs`: specialist context-path spec (FR-C1..C10) |
 | 73 | `feat(orchestrator)`: complete specialist evidence + role playbooks (FR-C1..C5) |
 | 74 | `feat`: inspection signals + checklist + dedup (FR-C6..C10) |
+| 75 | `docs`: phase-4 host-readiness spec (FR-P31..P35) + FR-O26 PR review action |
 
 ## 11. Extension points (SDD backlog)
 
@@ -659,7 +675,11 @@ implementing:
   auth, supported LLM deployment profiles and the phase-3 deployment
   readiness items (public readiness path, compose secret hygiene, log
   rotation, Anthropic structured output, off-box backups, AWS bring-up,
-  immutable image delivery, update/rollback).
+  immutable image delivery, update/rollback). Phase-4 local-host
+  readiness items (open, podman-first dev hosts): FR-P31..P35 —
+  `.dockerignore` build-context hygiene, socketless podman bring-up,
+  rootless bind-mount ownership, postgres host-port coexistence and a
+  storage-driver advisory.
 - **Monorepo split** — `git subtree split --prefix=packages/<pkg>` is the
   documented exit path.
 
