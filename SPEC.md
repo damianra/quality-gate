@@ -315,10 +315,13 @@ duration lands in `node_durations`.
   fresh `qg-*` per webhook event, stable across a mid-graph resume of
   the same attempt). `metrics.summarize` and `llm_call_metrics`
   persistence MUST count only records of the current attempt; records
-  stamped with a different attempt are excluded, unstamped records
-  (legacy checkpoints) count as current. This prevents both the
-  verdict-comment metrics line from accumulating prior-run calls and
-  duplicate `llm_call_metrics` rows on re-runs. Other add-reducer
+  stamped with a different attempt are excluded. Unstamped records
+  (legacy checkpoints) count as current only when NO stamped records
+  exist — once stamping is present, unstamped entries are checkpoint
+  residue and MUST be dropped so the first post-fix re-run self-heals
+  accumulated calls instead of counting them forever. This prevents
+  both the verdict-comment metrics line from accumulating prior-run
+  calls and duplicate `llm_call_metrics` rows on re-runs. Other add-reducer
   lists (`node_durations`, `processes`, `findings`, `errors`) MAY
   still accumulate across re-run invocations of the same thread —
   scoped to `llm_calls` because that is the user-visible accounting.
@@ -658,6 +661,7 @@ volatile during early history edits; commits are identified by subject):
 | 77 | `build`: local host readiness for podman bring-up (FR-P31..P34) |
 | 78 | `feat(mcp-server)`: FR-O26 PR review action (off|comment|approve, never fatal) |
 | 79 | `fix(orchestrator)`: attempt-scoped llm_calls accounting (FR-O18) |
+| 80 | `fix(orchestrator)`: drop unstamped llm_calls once attempt tags exist |
 
 ## 11. Extension points (SDD backlog)
 
