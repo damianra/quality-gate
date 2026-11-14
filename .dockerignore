@@ -32,3 +32,5 @@ target-repo/
 .github/
 docs/
 *.md
+deploy/
+compose*.yaml
