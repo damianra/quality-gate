@@ -125,3 +125,47 @@ Notes:
 - `QG_EXEC_VALIDATORS=1` in service mode lets `cargo check`/`go vet`
   execute PR-controlled `build.rs`/cgo — opt in only for trusted-repo
   deployments (FR-P12).
+
+## 7. Dev bring-up on podman hosts (FR-P32..P35)
+
+The production path above assumes Docker. On a podman-first dev host
+there is no Docker daemon — pick one of two compose paths:
+
+- **Socketless (default for dev):** `podman-compose` talks to the
+  podman CLI directly — no API socket, nothing to enable:
+  `podman-compose --profile debug up -d` brings up the dev stack
+  (postgres + orchestrator + ingress + nginx + the debug mcp-server).
+- **docker-compose v2** is required for `compose.prod.yaml` (its
+  `build: !reset null` is a compose-spec extension podman-compose
+  does not implement). It talks to the podman API socket, not a
+  daemon:
+  `systemctl --user enable --now podman.socket` then
+  `export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`.
+
+Checklist before `up`:
+
+1. `REPO_UNDER_TEST` exists and `PR_NUMBER` is a real PR — both are
+   `.env` placeholders that otherwise fail late. **podman-compose
+   caveat (FR-P32):** it does not expand `${VAR:-default}` for vars
+   unset in `.env` — the literal string reaches the container (an
+   unset `QG_EXEC_VALIDATORS` read as truthy → executing validators
+   ON, violating FR-P12). Keep every compose `:-` var explicitly set
+   in `.env` and assert after `up`:
+   `podman inspect <ctr> --format '{{.Config.Env}}' | grep -F '${'`
+   must return nothing.
+2. **Bind-mount ownership (FR-P33):** rootless podman shows host files
+   as container `root`, so `appuser` (uid 10001) cannot write a
+   host-owned `/work` mount. Either
+   `podman unshare chown -R 10001:10001 <REPO_UNDER_TEST>` or use a
+   world-writable dev dir; probe with
+   `podman run --rm -v <dir>:/work:Z <img> touch /work/.w`.
+3. **Port 5432 already taken (FR-P34):** set `QG_PG_PORT` (e.g. 5433)
+   and match any host-side `DATABASE_URL` to it — internal traffic
+   still uses `postgres:5432`.
+4. **Storage driver (FR-P35):** if podman logs
+   `graph driver "overlay" overwritten by "vfs"`, check
+   `podman info --format '{{.Store.GraphDriverName}}'`. `vfs` works —
+   it is slower and uses more disk (full copy per layer). The fix,
+   `podman system reset`, deletes **all** local images, containers and
+   volumes: on a shared dev host, export/backup anything that matters
+   (other stacks' `postgres`, etc.) first, or simply keep `vfs`.
