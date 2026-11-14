@@ -331,14 +331,12 @@ def _llm_findings(
         if not isinstance(item, dict):
             continue
         item_no = item.get("checklist_item")
-        if type(item_no) is int:  # not bool
+        # Checklist verdict entries carry no finding content — only an
+        # explicit "ok" marks coverage.
+        if type(item_no) is int and item.get("verdict") == "ok":
             covered.add(item_no)
-        # Checklist verdict entries carry no finding content.
-        if item.get("verdict") == "ok" and type(item_no) is int:
             verdicts += 1
             continue
-        if len(out) >= _LLM_MAX_FINDINGS:
-            break
         # A finding must carry content. Foreign schemas (e.g. the model
         # echoing {"code_changes": [{"file": ..., "changes": [...}]} for
         # a code-task PR) reach here via the "first list value" wrapper
@@ -360,7 +358,13 @@ def _llm_findings(
                     or evidence not in norm_ctx):
                 ungrounded += 1
                 continue
-            detail = f"{detail[:340]}\n> {evidence[:160]}".strip()
+            detail = f"{detail[:336]}\n> {evidence[:160]}".strip()
+        # A validated finding answers its checklist item even when it
+        # lands beyond the render cap.
+        if type(item_no) is int:
+            covered.add(item_no)
+        if len(out) >= _LLM_MAX_FINDINGS:
+            continue  # keep scanning: trailing verdicts still count
         sev = str(item.get("severity", "info")).lower()
         f_file = item.get("file")
         if not isinstance(f_file, str) or (
@@ -483,14 +487,15 @@ def _llm_enrich(
     )
     found = parsed["findings"]
     notes: list[dict[str, Any]] = []
-    if found:
-        status = "ok"
-    elif parsed["ungrounded"]:
-        status = "ungrounded"
+    if parsed["ungrounded"]:
         notes.append(_finding(
             agent, "info", "LLM findings dropped (ungrounded)",
             f"{parsed['ungrounded']} finding(s) lacked verbatim evidence "
             "from the PR context and were discarded per FR-O27."))
+    if found:
+        status = "ok"
+    elif parsed["ungrounded"]:
+        status = "ungrounded"
     elif parsed["clean"] or parsed["verdicts"]:
         # bare [] is a valid clean-PR answer; verdict-only output also
         # answered the contract — the uncovered note reports the rest.

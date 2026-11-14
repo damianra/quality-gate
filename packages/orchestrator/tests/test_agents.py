@@ -977,6 +977,49 @@ def test_llm_findings_checklist_verdicts_and_uncovered():
     assert r["uncovered"] == [3]
 
 
+def test_llm_findings_dropped_finding_does_not_cover_item():
+    """Review warning: a finding dropped for bad evidence must NOT mark
+    its checklist_item as covered — the item stays unaddressed."""
+    import json as _json
+    items = [{"severity": "warning", "title": "fake", "detail": "d",
+              "evidence": "not in context at all", "checklist_item": 1}]
+    r = agents._llm_findings(
+        "qa", _json.dumps(items), context=_CTX, checklist_count=1)
+    assert r["uncovered"] == [1] and r["ungrounded"] == 1
+
+
+def test_llm_findings_verdicts_after_cap_still_counted():
+    """Review warning: verdict entries placed past the findings cap must
+    still be consumed — the scan continues instead of breaking."""
+    import json as _json
+    items = ([{"severity": "info", "title": f"t{i}", "detail": "d",
+               "evidence": "remote remove origin"}
+              for i in range(agents._LLM_MAX_FINDINGS)]
+             + [{"checklist_item": 7, "verdict": "ok"}])
+    r = agents._llm_findings(
+        "qa", _json.dumps(items), context=_CTX, checklist_count=7)
+    assert len(r["findings"]) == agents._LLM_MAX_FINDINGS
+    assert r["uncovered"] == [1, 2, 3, 4, 5, 6]   # 7 answered by verdict
+
+
+def test_enrich_partial_ungrounded_still_notes_drops(monkeypatch):
+    """Kept findings + dropped ones: status ok but the drop note must
+    still surface so partial confabulation is visible."""
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"severity": "warning", "title": "real", "detail": "d",'
+                ' "evidence": "## Deterministic signals"},'
+                '{"severity": "info", "title": "invented", "detail": "d",'
+                ' "evidence": "totally absent quote"}]',
+        "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.4,
+    })
+    out = agents._llm_enrich("review", agents.REVIEW_PROMPT, _state())
+    titles = [f["title"] for f in out["findings"]]
+    assert "LLM: real" in titles
+    assert "LLM findings dropped (ungrounded)" in titles
+    assert out["llm_calls"][0]["status"] == "ok"
+
+
 def test_llm_findings_clean_empty_array():
     r = agents._llm_findings("review", "[]")
     assert r["clean"] is True and r["findings"] == []
