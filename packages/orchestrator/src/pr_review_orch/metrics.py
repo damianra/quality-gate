@@ -16,8 +16,8 @@ breaks a review run.
 from __future__ import annotations
 
 import logging
-import os
 import time
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -47,7 +47,7 @@ def _attempt_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
     mid-graph resume reuses the worktree and keeps its calls. Untagged
     entries count as current for backwards compatibility.
     """
-    attempt = os.path.basename(str(state.get("repo_path") or ""))
+    attempt = Path(state.get("repo_path") or "").name
     calls = state.get("llm_calls") or []
     if not attempt:
         return calls
