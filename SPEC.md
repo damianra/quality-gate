@@ -641,6 +641,7 @@ volatile during early history edits; commits are identified by subject):
 | 75 | `docs`: phase-4 host-readiness spec (FR-P31..P35) + FR-O26 PR review action |
 | 76 | `fix(orchestrator)`: drop commit() calls after psycopg context exit |
 | 77 | `build`: local host readiness for podman bring-up (FR-P31..P34) |
+| 78 | `feat(mcp-server)`: FR-O26 PR review action (off|comment|approve, never fatal) |
 
 ## 11. Extension points (SDD backlog)
 

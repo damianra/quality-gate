@@ -11,6 +11,7 @@ be unit-tested without git or network access.
 from __future__ import annotations
 
 import fnmatch
+import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,8 @@ from typing import Any
 
 from . import config, git_ops
 from .github_api import GitHubClient
+
+log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 # Verdict comment contract
@@ -714,7 +717,35 @@ def post_verdict(
         else:
             comment = gh.create_issue_comment(slug, pr_number, body)
             action = "created"
-        return {"action": action, "url": comment["html_url"], "head_sha": head_sha[:7]}
+        review = _submit_pr_review(gh, slug, pr_number, approve, body)
+        return {
+            "action": action,
+            "url": comment["html_url"],
+            "head_sha": head_sha[:7],
+            "review": review,
+        }
+
+
+def _submit_pr_review(
+    gh: GitHubClient, slug: str, pr_number: int, approve: bool, body: str
+) -> str:
+    """FR-O26: optional GitHub PR review submission — never fatal.
+
+    Returns the outcome: ``off`` (disabled), the submitted event
+    lowercased (``approve``/``comment``), or ``failed`` (e.g. self-approve
+    422 — GitHub never lets a token approve its owner's own PR). The
+    verdict comment is the durable artifact; a failed review only logs.
+    """
+    action = config.PR_REVIEW_ACTION
+    if action == "off":
+        return "off"
+    event = "APPROVE" if action == "approve" and approve else "COMMENT"
+    try:
+        gh.submit_pr_review(slug, pr_number, event=event, body=body[:4000])
+        return event.lower()
+    except Exception as exc:
+        log.warning("PR review submission failed (%s): %s", event, exc)
+        return "failed"
 
 
 def create_pr(

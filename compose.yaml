@@ -71,6 +71,7 @@ services:
       REPO_PATH: /work
       PR_NUMBER: ${PR_NUMBER:-}
       DRY_RUN: ${DRY_RUN:-false}
+      QG_PR_REVIEW_ACTION: ${QG_PR_REVIEW_ACTION:-off}
     volumes:
       # Mount the repository under review read-write (needed to run tsc/node --check).
       - ${REPO_UNDER_TEST:-./target-repo}:/work
@@ -106,6 +107,10 @@ services:
       # run PR-controlled code (cargo check -> build.rs, go vet -> cgo)
       # stay off unless the operator explicitly opts in.
       QG_EXEC_VALIDATORS: ${QG_EXEC_VALIDATORS:-0}
+      # FR-O26: off (default) | comment | approve — GitHub PR review
+      # submission after the verdict comment. Requires pull-requests write
+      # scope; self-approve (token user == PR author) degrades to a warning.
+      QG_PR_REVIEW_ACTION: ${QG_PR_REVIEW_ACTION:-off}
       # FR-P19 deployment profiles: the CPU-only default is
       # DETERMINISTIC (empty provider -> zero LLM calls). Opt into the
       # `api` profile by exporting QG_LLM_PROVIDER(+key), or the `local`
