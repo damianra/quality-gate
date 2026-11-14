@@ -49,9 +49,12 @@ _LLM_OUTPUT_CONTRACT = (
     '{"severity": "info|warning|blocker", "title": str, "detail": str, '
     '"file": str|null, "evidence": str, "checklist_item": int|null} '
     'OR a checklist verdict {"checklist_item": int, "verdict": "ok"}. '
-    '"evidence" MUST be a verbatim quote copied from the supplied '
-    "context (a diff hunk, line or file excerpt) that proves the "
-    "finding — findings without verbatim evidence are discarded. "
+    '"evidence" MUST cite the supplied context proving the claim — '
+    'prefer a diff line id: the "## Diff" section prefixes every line '
+    'with "dNNN|", so "evidence": "d0042" references that exact line '
+    '(added, removed or context lines only — not diff headers). A '
+    "verbatim quote copied from the context is also accepted. "
+    "Findings without valid evidence are discarded. "
     "When an Inspection checklist is present, EVERY numbered item "
     "must be answered: either by a finding carrying its index in "
     '"checklist_item" or by an explicit "verdict": "ok" entry. '
@@ -82,6 +85,31 @@ def _neutralize_sentinels(text: str) -> str:
 
 _LLM_SEVERITIES = {"info", "warning", "blocker"}
 _LLM_MAX_FINDINGS = 10
+#: FR-O27 — the ## Diff section ships every line prefixed with dNNN|;
+#: findings may cite it as "evidence": "dNNN" (or "diff:NNN").
+_DIFF_LINE_ID = re.compile(r"^d(\d+)\|(.*)$")
+_EVIDENCE_REF = re.compile(r"^(?:diff:?)?d?(\d+)$", re.IGNORECASE)
+
+
+def _diff_line_map(context: str) -> dict[int, str]:
+    """Extract ``dNNN|`` line ids and their content from the context."""
+    out: dict[int, str] = {}
+    for line in context.splitlines():
+        m = _DIFF_LINE_ID.match(line)
+        if m:
+            out[int(m.group(1))] = m.group(2)
+    return out
+
+
+def _is_diff_content_line(line: str) -> bool:
+    """Added/removed/context diff line — headers carry no evidence."""
+    return (
+        (line.startswith("+") and not line.startswith("+++"))
+        or (line.startswith("-") and not line.startswith("---"))
+        or line.startswith(" ")
+    )
+
+
 #: FR-O27 — evidence quotes below this length cannot prove a finding
 #: (single tokens like "+" or "x" substring-match any context).
 _LLM_MIN_EVIDENCE = 12
@@ -179,6 +207,12 @@ def _llm_user_message(
 
     raw_diff = ctx.get("diff_text") or "(empty)"
     diff = raw_diff[: config.PROMPT_MAX_DIFF_CHARS]
+    if raw_diff != "(empty)":
+        # FR-O27: dNNN| line ids let findings cite evidence by reference
+        # instead of reproducing a verbatim quote — "evidence": "d0042".
+        diff = "\n".join(
+            f"d{i:04d}|{line}" for i, line in
+            enumerate(diff.splitlines(), 1))
     diff_cut = ctx.get("truncated") or len(diff) < len(raw_diff)
 
     raw_body = (state.get("pr_body") or "").strip() or "(empty)"
@@ -323,6 +357,7 @@ def _llm_findings(
                 "uncovered": [], "clean": False, "verdicts": 0}
     clean = len(data) == 0
     norm_ctx = _norm_ws(context) if context is not None else None
+    diff_lines = _diff_line_map(context) if context is not None else {}
     covered: set[int] = set()
     ungrounded = 0
     verdicts = 0
@@ -352,13 +387,22 @@ def _llm_findings(
         if not title and not detail:
             continue
         if norm_ctx is not None:
-            evidence = _norm_ws(str(
-                item.get("evidence") or item.get("quote") or ""))
-            if (len(evidence) < _LLM_MIN_EVIDENCE
-                    or evidence not in norm_ctx):
-                ungrounded += 1
-                continue
-            detail = f"{detail[:336]}\n> {evidence[:160]}".strip()
+            raw_ev = str(
+                item.get("evidence") or item.get("quote") or "")
+            ref = _EVIDENCE_REF.match(raw_ev.strip())
+            if ref is not None:
+                line = diff_lines.get(int(ref.group(1)))
+                if line is None or not _is_diff_content_line(line):
+                    ungrounded += 1
+                    continue
+                detail = f"{detail[:336]}\n> {line[:160]}".strip()
+            else:
+                evidence = _norm_ws(raw_ev)
+                if (len(evidence) < _LLM_MIN_EVIDENCE
+                        or evidence not in norm_ctx):
+                    ungrounded += 1
+                    continue
+                detail = f"{detail[:336]}\n> {evidence[:160]}".strip()
         # A validated finding answers its checklist item even when it
         # lands beyond the render cap.
         if type(item_no) is int:
@@ -490,7 +534,7 @@ def _llm_enrich(
     if parsed["ungrounded"]:
         notes.append(_finding(
             agent, "info", "LLM findings dropped (ungrounded)",
-            f"{parsed['ungrounded']} finding(s) lacked verbatim evidence "
+            f"{parsed['ungrounded']} finding(s) lacked valid evidence "
             "from the PR context and were discarded per FR-O27."))
     if found:
         status = "ok"

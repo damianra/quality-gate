@@ -451,9 +451,13 @@ duration lands in `node_durations`.
 
 - **FR-O27 Grounded LLM findings.** LLM output must be anchored to
   the supplied evidence, not free-generated. The output contract
-  requires every finding to carry `evidence` — a verbatim quote
-  (whitespace-normalized substring) of the supplied user-message
-  context proving the claim — and, when an `## Inspection checklist`
+  requires every finding to carry `evidence` — EITHER a diff line
+  reference `dNNN` (the `## Diff` section in the user message is
+  emitted with `dNNN|`-prefixed line ids; the referenced line must
+  be an added/removed/context line, not a `diff --git`/`index`/
+  `---`/`+++`/`@@` header) OR a verbatim quote (whitespace-normalized
+  substring) of the supplied user-message context proving the claim —
+  and, when an `## Inspection checklist`
   section is present, every numbered item to receive a verdict:
   either a finding carrying `checklist_item` or an explicit
   `{"checklist_item": N, "verdict": "ok"}` entry that is consumed
@@ -467,10 +471,12 @@ duration lands in `node_durations`.
   empty array `[]` is a VALID clean-PR answer (status `ok`, no
   findings) — only foreign schemas and non-JSON output degrade to
   `unparseable`. Small models confabulate plausible-sounding
-  summaries when asked open-endedly for "findings"; verbatim-evidence
-  validation plus closed checklist verdicts turns the task into
-  citing proof, which an 8B model can do reliably. LLM findings
-  remain additive-only per FR-O25.
+  summaries when asked open-endedly for "findings"; line-reference or
+  verbatim-evidence validation plus closed checklist verdicts turns
+  the task into citing proof, which an 8B model can do reliably —
+  referencing `dNNN` only requires pointing at a numbered line, not
+  reproducing text verbatim. LLM findings remain additive-only per
+  FR-O25.
 
 ## 5. Non-functional requirements
 

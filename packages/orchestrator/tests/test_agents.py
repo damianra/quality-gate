@@ -1029,6 +1029,68 @@ def test_llm_findings_dropped_finding_does_not_cover_item():
     assert r["uncovered"] == [1] and r["ungrounded"] == 1
 
 
+_CTX_NUMBERED = (
+    "## Diff\n"
+    "d0001|diff --git a/x b/x\n"
+    "d0002|index 123..456 100644\n"
+    "d0003|--- a/x\n"
+    "d0004|+++ b/x\n"
+    "d0005|@@ -1,2 +1,2 @@\n"
+    "d0006|+ remote remove origin\n"
+    "d0007| context line kept\n"
+)
+
+
+def test_llm_findings_evidence_diff_line_ref():
+    """FR-O27: a dNNN reference to a content line is valid grounding —
+    the finding keeps and renders the referenced line, not the id."""
+    import json as _json
+    items = [{"severity": "warning", "title": "remote lost", "detail": "d",
+              "evidence": "d0006"}]
+    r = agents._llm_findings("review", _json.dumps(items),
+                             context=_CTX_NUMBERED)
+    assert len(r["findings"]) == 1 and r["ungrounded"] == 0
+    assert "> + remote remove origin" in r["findings"][0]["detail"]
+
+
+def test_llm_findings_evidence_ref_rejects_headers_and_missing():
+    """Refs to diff headers (+++ / @@ / diff --git) or to nonexistent
+    line ids are NOT evidence — they count as ungrounded drops."""
+    import json as _json
+    items = [
+        {"severity": "w", "title": "a", "detail": "d", "evidence": "d0001"},
+        {"severity": "w", "title": "b", "detail": "d", "evidence": "d0004"},
+        {"severity": "w", "title": "c", "detail": "d", "evidence": "d0005"},
+        {"severity": "w", "title": "e", "detail": "d", "evidence": "d9999"},
+    ]
+    r = agents._llm_findings("review", _json.dumps(items),
+                             context=_CTX_NUMBERED)
+    assert r["findings"] == [] and r["ungrounded"] == 4
+
+
+def test_llm_findings_evidence_ref_diff_prefix_and_context_line():
+    import json as _json
+    items = [
+        {"severity": "info", "title": "a", "detail": "d",
+         "evidence": "diff:6"},
+        {"severity": "info", "title": "b", "detail": "d",
+         "evidence": "d0007"},                       # context line ok
+    ]
+    r = agents._llm_findings("review", _json.dumps(items),
+                             context=_CTX_NUMBERED)
+    assert len(r["findings"]) == 2 and r["ungrounded"] == 0
+
+
+def test_user_message_numbers_diff_lines():
+    state = _state(pr_context={
+        "diff_text": "diff --git a/x b/x\n+ added line\n ctx line",
+        "changed_files": [], "truncated": False})
+    msg = agents._llm_user_message(state)
+    assert "d0001|diff --git a/x b/x" in msg
+    assert "d0002|+ added line" in msg
+    assert "d0003| ctx line" in msg
+
+
 def test_llm_findings_verdicts_after_cap_still_counted():
     """Review warning: verdict entries placed past the findings cap must
     still be consumed — the scan continues instead of breaking."""
