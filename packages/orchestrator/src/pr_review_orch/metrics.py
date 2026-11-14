@@ -44,15 +44,23 @@ def _attempt_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
     thread (same ``thread_id`` per PR) accumulates calls across webhook
     events. Entries are stamped with the attempt's worktree basename:
     a new event clones a fresh ``qg-*`` worktree (new attempt), while a
-    mid-graph resume reuses the worktree and keeps its calls. Untagged
-    entries count as current for backwards compatibility.
+    mid-graph resume reuses the worktree and keeps its calls.
+
+    When no attempt-stamped records exist (legacy checkpoints and
+    hand-built states), all records count for backwards compatibility.
+    Once stamped records are present, only the current attempt counts —
+    an unstamped record alongside stamped ones can only be checkpoint
+    residue, and dropping it makes re-runs self-heal the accumulated
+    calls on the first post-fix event.
     """
     attempt = Path(state.get("repo_path") or "").name
     calls = state.get("llm_calls") or []
     if not attempt:
         return calls
+    if not any(isinstance(c, dict) and c.get("attempt") for c in calls):
+        return calls
     return [c for c in calls
-            if not isinstance(c, dict) or c.get("attempt") in (None, attempt)]
+            if isinstance(c, dict) and c.get("attempt") == attempt]
 
 
 def summarize(state: dict[str, Any]) -> dict[str, Any]:

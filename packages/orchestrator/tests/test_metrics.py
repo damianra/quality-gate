@@ -197,7 +197,8 @@ def test_attempt_scoped_calls_drop_prior_runs() -> None:
 
 def test_attempt_untagged_calls_count_as_current() -> None:
     """Calls recorded without an attempt stamp (older checkpoints)
-    still count — the filter only drops explicitly foreign attempts."""
+    still count when no stamped records exist — the filter only
+    activates once attempt tagging is present."""
     state = _full_state()
     state["llm_calls"] = [
         {"role": "review", "node": "review", "provider": "ollama",
@@ -205,6 +206,26 @@ def test_attempt_untagged_calls_count_as_current() -> None:
          "usage": {"prompt_tokens": 100, "completion_tokens": 10}},
     ]
     assert metrics.summarize(state)["llm"]["calls"] == 1
+
+
+def test_attempt_stamped_records_drop_untagged_residue() -> None:
+    """Once stamped calls exist, unstamped entries are checkpoint
+    residue — dropping them makes the first post-fix re-run self-heal
+    legacy accumulated calls instead of counting them forever."""
+    state = _full_state()  # repo_path ends in qg-abc123
+    state["llm_calls"] = [
+        {"role": "review", "node": "review", "provider": "ollama",
+         "model": "m",
+         "usage": {"prompt_tokens": 100, "completion_tokens": 10}},
+        {"attempt": "qg-abc123", "role": "qa", "node": "qa",
+         "provider": "ollama", "model": "m", "duration_s": 3.0,
+         "usage": {"prompt_tokens": 200, "completion_tokens": 20}},
+    ]
+    report = metrics.summarize(state)
+    assert report["llm"]["calls"] == 1
+    assert report["llm"]["total_tokens"] == 220
+    rows = metrics._call_rows(state, "run-1")
+    assert len(rows) == 1 and rows[0][4] == "qa"
 
 
 def test_call_rows_map_per_call_fields() -> None:
