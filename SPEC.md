@@ -321,10 +321,21 @@ duration lands in `node_durations`.
   residue and MUST be dropped so the first post-fix re-run self-heals
   accumulated calls instead of counting them forever. This prevents
   both the verdict-comment metrics line from accumulating prior-run
-  calls and duplicate `llm_call_metrics` rows on re-runs. Other add-reducer
-  lists (`node_durations`, `processes`, `findings`, `errors`) MAY
-  still accumulate across re-run invocations of the same thread —
-  scoped to `llm_calls` because that is the user-visible accounting.
+  calls and duplicate `llm_call_metrics` rows on re-runs.
+
+  The same attempt discriminator scopes EVERY add-reducer list, not
+  just `llm_calls`: `findings`, `errors`, `node_durations` and
+  `processes` are stamped at each node boundary (`graph._stamp_attempt`)
+  and filtered at their consumers — `synthesizer_node` dedups/verdicts
+  only current-attempt findings and errors (string `errors` are
+  wrapped as `{"msg", "attempt"}` dicts; `metrics.attempt_errors`
+  normalizes them), and `metrics.summarize` filters `node_durations`
+  and `processes` for both the comment and `run_metrics` persistence.
+  Without this, a re-run's verdict comment shows deduplicated residue
+  ("N similar findings" counters inflating per event) and a stale
+  `errors` entry can wrongly block approval. `active_pgids` is
+  deliberately NOT scoped: the cleanup node and the runner's
+  finally-sweep must terminate process groups from ANY attempt.
 
 - **FR-O19 Webhook ingress.** An `ingress` FastAPI/uvicorn service exposes
   `POST /github/webhook` behind nginx. It accepts only `pull_request`
@@ -686,6 +697,7 @@ volatile during early history edits; commits are identified by subject):
 | 79 | `fix(orchestrator)`: attempt-scoped llm_calls accounting (FR-O18) |
 | 80 | `fix(orchestrator)`: drop unstamped llm_calls once attempt tags exist |
 | 81 | `feat(orchestrator)`: grounded LLM findings + checklist verdicts (FR-O27) |
+| 82 | `fix(orchestrator)`: attempt-scoped findings/errors/durations/processes |
 
 ## 11. Extension points (SDD backlog)
 

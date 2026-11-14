@@ -185,6 +185,47 @@ def test_synthesizer_rejects_on_internal_errors():
     assert out["verdict"]["approve"] is False
 
 
+def test_synthesizer_scopes_findings_and_errors_to_attempt():
+    """FR-O18: checkpoint-restored findings/errors from an earlier
+    webhook event must not leak into this run's verdict — a stale
+    blocker or error would wrongly reject the PR."""
+    state = _state(
+        repo_path="/tmp/qg-newrun",
+        findings=[
+            {"agent": "security", "severity": "blocker",
+             "title": "Stale", "detail": "x", "attempt": "qg-oldrun"},
+            {"agent": "review", "severity": "info",
+             "title": "Fresh", "detail": "y", "attempt": "qg-newrun"},
+        ],
+        errors=[{"msg": "qa: exploded last run", "attempt": "qg-oldrun"}],
+    )
+    out = synthesizer_node(state)
+    assert out["verdict"]["approve"] is True
+    assert len(out["verdict"]["checks"]) == 1
+    assert out["verdict"]["checks"][0]["name"] == "Fresh"
+
+
+def test_stamp_attempt_tags_update_entries():
+    """Node-boundary stamping: dict entries get attempt; string errors
+    are wrapped into {"msg", "attempt"} dicts."""
+    from pr_review_orch import graph
+    update = {
+        "findings": [{"title": "t"}, {"title": "s", "attempt": "kept"}],
+        "errors": ["qa: boom"],
+        "node_durations": [{"node": "qa", "duration_s": 1.0}],
+        "llm_calls": [{"role": "qa", "attempt": "preset"}],
+    }
+    out = graph._stamp_attempt(update, {"repo_path": "/var/qg-xyz"})
+    assert out["findings"][0]["attempt"] == "qg-xyz"
+    assert out["findings"][1]["attempt"] == "kept"      # setdefault
+    assert out["errors"] == [{"msg": "qa: boom", "attempt": "qg-xyz"}]
+    assert out["node_durations"][0]["attempt"] == "qg-xyz"
+    assert out["llm_calls"][0]["attempt"] == "preset"
+    # no repo_path -> no-op (e.g. unit states)
+    assert graph._stamp_attempt({"findings": [{"title": "t"}]},
+                                {"repo_path": ""}) == {"findings": [{"title": "t"}]}
+
+
 # -- LLM enrichment (FR-O16) ------------------------------------------------- #
 
 

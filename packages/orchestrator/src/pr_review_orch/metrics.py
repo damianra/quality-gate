@@ -37,37 +37,53 @@ def node_duration(node: str, started: float) -> dict[str, Any]:
     return {"node": node, "duration_s": round(time.monotonic() - started, 3)}
 
 
-def _attempt_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
-    """``llm_calls`` belonging to this run attempt only.
+def _attempt_entries(state: dict[str, Any], key: str) -> list[Any]:
+    """Add-reducer list entries belonging to this run attempt only.
 
-    ``llm_calls`` is an add-reducer field, so a checkpoint-restored
-    thread (same ``thread_id`` per PR) accumulates calls across webhook
-    events. Entries are stamped with the attempt's worktree basename:
-    a new event clones a fresh ``qg-*`` worktree (new attempt), while a
-    mid-graph resume reuses the worktree and keeps its calls.
+    ``llm_calls``, ``findings``, ``errors``, ``node_durations`` and
+    ``processes`` are add-reducer fields, so a checkpoint-restored
+    thread (same ``thread_id`` per PR) accumulates entries across
+    webhook events. Entries are stamped with the attempt's worktree
+    basename: a new event clones a fresh ``qg-*`` worktree (new
+    attempt), while a mid-graph resume reuses the worktree and keeps
+    its entries.
 
     When no attempt-stamped records exist (legacy checkpoints and
     hand-built states), all records count for backwards compatibility.
     Once stamped records are present, only the current attempt counts —
     an unstamped record alongside stamped ones can only be checkpoint
     residue, and dropping it makes re-runs self-heal the accumulated
-    calls on the first post-fix event.
+    entries on the first post-fix event.
     """
     attempt = Path(state.get("repo_path") or "").name
-    calls = state.get("llm_calls") or []
+    entries = state.get(key) or []
     if not attempt:
-        return calls
-    if not any(isinstance(c, dict) and c.get("attempt") for c in calls):
-        return calls
-    return [c for c in calls
+        return entries
+    if not any(isinstance(c, dict) and c.get("attempt") for c in entries):
+        return entries
+    return [c for c in entries
             if isinstance(c, dict) and c.get("attempt") == attempt]
+
+
+def _attempt_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return _attempt_entries(state, "llm_calls")
+
+
+def attempt_errors(state: dict[str, Any]) -> list[str]:
+    """Current-attempt ``errors`` normalized to plain strings.
+
+    New entries are ``{"msg", "attempt"}`` dicts stamped by the node
+    wrapper; legacy strings still pass through the legacy path.
+    """
+    return [e["msg"] if isinstance(e, dict) else str(e)
+            for e in _attempt_entries(state, "errors")]
 
 
 def summarize(state: dict[str, Any]) -> dict[str, Any]:
     """Aggregate node/LLM/process metrics into a compact report."""
     llm_calls = _attempt_calls(state)
-    processes = state.get("processes", [])
-    nodes = state.get("node_durations", [])
+    processes = _attempt_entries(state, "processes")
+    nodes = _attempt_entries(state, "node_durations")
     started_at = state.get("started_at")
 
     prompt = sum(c.get("usage", {}).get("prompt_tokens", 0) for c in llm_calls)
