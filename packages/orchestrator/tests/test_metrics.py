@@ -243,7 +243,6 @@ def test_attempt_entries_scope_findings_processes_durations() -> None:
     report = metrics.summarize(state)
     assert report["processes"]["count"] == 1
     assert [n["node"] for n in report["nodes"]] == ["review"]
-    assert metrics._attempt_entries(state, "findings") == [] or True
     state["findings"] = [
         {"attempt": "qg-prior", "title": "stale"},
         {"attempt": "qg-abc123", "title": "fresh"},

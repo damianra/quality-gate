@@ -75,7 +75,7 @@ def attempt_errors(state: dict[str, Any]) -> list[str]:
     New entries are ``{"msg", "attempt"}`` dicts stamped by the node
     wrapper; legacy strings still pass through the legacy path.
     """
-    return [e["msg"] if isinstance(e, dict) else str(e)
+    return [e.get("msg", str(e)) if isinstance(e, dict) else str(e)
             for e in _attempt_entries(state, "errors")]
 
 
