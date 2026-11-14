@@ -327,8 +327,14 @@ def _llm_findings(
 def _call_record(
     cfg: llm.LLMConfig, node: str, status: str,
     meta: dict[str, Any] | None = None, error: str | None = None,
+    attempt: str | None = None,
 ) -> dict[str, Any]:
-    """Build one ``llm_calls`` entry (shape consumed by metrics._call_rows)."""
+    """Build one ``llm_calls`` entry (shape consumed by metrics._call_rows).
+
+    ``attempt`` stamps the record with the run attempt (worktree
+    basename) so checkpoint-restored calls from earlier webhook events
+    can be filtered out of metrics and persistence.
+    """
     meta = meta or {}
     rec: dict[str, Any] = {
         "role": cfg.role or node,
@@ -343,6 +349,8 @@ def _call_record(
         "truncated": bool(meta.get("truncated")),
         "status": status,
     }
+    if attempt is not None:
+        rec["attempt"] = attempt
     if error:
         rec["error"] = error[:300]
     if meta.get("text"):
@@ -369,6 +377,7 @@ def _llm_enrich(
     note instead of a rejection.
     """
     out: dict[str, Any] = {"findings": [], "llm_calls": [], "active_pgids": []}
+    attempt = Path(state.get("repo_path") or "").name or None
     try:
         cfg = llm.LLMConfig.for_role(agent)
     except llm.LLMConfigError as exc:
@@ -392,7 +401,7 @@ def _llm_enrich(
             f"{cfg.provider}/{cfg.model} call failed; "
             "deterministic findings only.")]
         out["llm_calls"] = [
-            _call_record(cfg, agent, "error", error=str(exc))
+            _call_record(cfg, agent, "error", error=str(exc), attempt=attempt)
         ]
         return out
 
@@ -402,7 +411,7 @@ def _llm_enrich(
             agent, "info", "LLM enrichment truncated",
             f"{cfg.provider}/{cfg.model} hit the token cap; "
             "deterministic findings only.")]
-        out["llm_calls"] = [_call_record(cfg, agent, "truncated", meta)]
+        out["llm_calls"] = [_call_record(cfg, agent, "truncated", meta, attempt=attempt)]
         out["active_pgids"] = pgids
         return out
 
@@ -416,12 +425,12 @@ def _llm_enrich(
         out["findings"] = [_finding(
             agent, "info", "LLM enrichment unparseable",
             "Model output was not a valid findings JSON array.")]
-        out["llm_calls"] = [_call_record(cfg, agent, "unparseable", meta)]
+        out["llm_calls"] = [_call_record(cfg, agent, "unparseable", meta, attempt=attempt)]
         out["active_pgids"] = pgids
         return out
 
     out["findings"] = found
-    out["llm_calls"] = [_call_record(cfg, agent, "ok", meta)]
+    out["llm_calls"] = [_call_record(cfg, agent, "ok", meta, attempt=attempt)]
     out["active_pgids"] = pgids
     return out
 
@@ -496,6 +505,7 @@ def harness_summarize(
     ``error`` row so the attempt is still visible in metrics.
     """
     out: dict[str, Any] = {"text": "", "llm_calls": [], "active_pgids": []}
+    attempt = Path(state.get("repo_path") or "").name or None
     try:
         cfg = llm.LLMConfig.for_role("harness")
     except llm.LLMConfigError:
@@ -512,7 +522,7 @@ def harness_summarize(
     except Exception as exc:  # noqa: BLE001 - harness failure is cosmetic
         logger.warning("harness LLM call failed: %s", exc)
         out["llm_calls"] = [
-            _call_record(cfg, "synthesizer", "error", error=str(exc))
+            _call_record(cfg, "synthesizer", "error", error=str(exc), attempt=attempt)
         ]
         return out
 
@@ -524,7 +534,7 @@ def harness_summarize(
         status = "unparseable"
     else:
         out["text"] = text
-    out["llm_calls"] = [_call_record(cfg, "synthesizer", status, meta)]
+    out["llm_calls"] = [_call_record(cfg, "synthesizer", status, meta, attempt=attempt)]
     return out
 
 

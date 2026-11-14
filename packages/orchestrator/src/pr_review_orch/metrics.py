@@ -16,6 +16,7 @@ breaks a review run.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -36,9 +37,27 @@ def node_duration(node: str, started: float) -> dict[str, Any]:
     return {"node": node, "duration_s": round(time.monotonic() - started, 3)}
 
 
+def _attempt_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """``llm_calls`` belonging to this run attempt only.
+
+    ``llm_calls`` is an add-reducer field, so a checkpoint-restored
+    thread (same ``thread_id`` per PR) accumulates calls across webhook
+    events. Entries are stamped with the attempt's worktree basename:
+    a new event clones a fresh ``qg-*`` worktree (new attempt), while a
+    mid-graph resume reuses the worktree and keeps its calls. Untagged
+    entries count as current for backwards compatibility.
+    """
+    attempt = os.path.basename(str(state.get("repo_path") or ""))
+    calls = state.get("llm_calls") or []
+    if not attempt:
+        return calls
+    return [c for c in calls
+            if not isinstance(c, dict) or c.get("attempt") in (None, attempt)]
+
+
 def summarize(state: dict[str, Any]) -> dict[str, Any]:
     """Aggregate node/LLM/process metrics into a compact report."""
-    llm_calls = state.get("llm_calls", [])
+    llm_calls = _attempt_calls(state)
     processes = state.get("processes", [])
     nodes = state.get("node_durations", [])
     started_at = state.get("started_at")
@@ -294,7 +313,7 @@ def _call_rows(state: dict[str, Any], run_id: str) -> list[tuple[Any, ...]]:
     and logged instead of aborting persistence for the whole run.
     """
     rows = []
-    for i, call in enumerate(state.get("llm_calls", [])):
+    for i, call in enumerate(_attempt_calls(state)):
         try:
             usage = call.get("usage") or {}
             prompt = int(usage.get("prompt_tokens", 0) or 0)
