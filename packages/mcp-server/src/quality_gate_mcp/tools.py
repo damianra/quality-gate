@@ -717,7 +717,7 @@ def post_verdict(
         else:
             comment = gh.create_issue_comment(slug, pr_number, body)
             action = "created"
-        review = _submit_pr_review(gh, slug, pr_number, approve, body)
+        review = _submit_pr_review(gh, slug, pr_number, approve, body, head_sha)
         return {
             "action": action,
             "url": comment["html_url"],
@@ -727,7 +727,8 @@ def post_verdict(
 
 
 def _submit_pr_review(
-    gh: GitHubClient, slug: str, pr_number: int, approve: bool, body: str
+    gh: GitHubClient, slug: str, pr_number: int, approve: bool,
+    body: str, head_sha: str,
 ) -> str:
     """FR-O26: optional GitHub PR review submission — never fatal.
 
@@ -741,7 +742,10 @@ def _submit_pr_review(
         return "off"
     event = "APPROVE" if action == "approve" and approve else "COMMENT"
     try:
-        gh.submit_pr_review(slug, pr_number, event=event, body=body[:4000])
+        gh.submit_pr_review(
+            slug, pr_number, event=event, body=body[:4000],
+            commit_id=head_sha,
+        )
         return event.lower()
     except Exception as exc:
         log.warning("PR review submission failed (%s): %s", event, exc)

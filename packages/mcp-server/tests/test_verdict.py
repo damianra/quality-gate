@@ -116,7 +116,7 @@ class _FakeGH:
         self.calls.append(("create", number))
         return {"html_url": "u"}
 
-    def submit_pr_review(self, slug, number, event, body):
+    def submit_pr_review(self, slug, number, event, body, commit_id=None):
         self.calls.append(("review", event))
         if self._review_exc is not None:
             raise self._review_exc
