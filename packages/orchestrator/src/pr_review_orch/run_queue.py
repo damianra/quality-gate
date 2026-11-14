@@ -77,10 +77,12 @@ def setup() -> None:
     if not enabled() or _SCHEMA_READY:
         return
     try:
+        # psycopg3: the `with` block commits on clean exit and then
+        # closes the connection — a commit() after it raises
+        # OperationalError("the connection is closed").
         with _connect() as conn, conn.cursor() as cur:
             for ddl in _DDL:
                 cur.execute(ddl)
-        conn.commit()
         _SCHEMA_READY = True
     except Exception:  # noqa: BLE001 - retried on next call
         logger.warning("pending_runs schema bootstrap failed", exc_info=True)
@@ -109,7 +111,6 @@ def enqueue(event: dict[str, Any]) -> bool:
             ),
         )
         inserted = cur.rowcount > 0
-    conn.commit()
     return inserted
 
 
@@ -153,7 +154,6 @@ def _mark(delivery_id: str, sql: str, params: tuple) -> None:
     try:
         with _connect() as conn, conn.cursor() as cur:
             cur.execute(sql, (*params, delivery_id))
-        conn.commit()
     except Exception:  # noqa: BLE001
         logger.warning("pending_runs mark failed for %s",
                        delivery_id, exc_info=True)
