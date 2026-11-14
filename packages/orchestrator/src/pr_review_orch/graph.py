@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -121,7 +122,7 @@ def _dedup_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     """Consolidate findings into a verdict and publish it (unless dry-run)."""
-    findings = _dedup_findings(state.get("findings", []))
+    findings = _dedup_findings(metrics._attempt_entries(state, "findings"))
     blockers = [f for f in findings if f["severity"] == "blocker"]
     approve = not blockers
 
@@ -134,12 +135,13 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
         }
         for f in findings
     ]
-    if state.get("errors"):
+    errors = metrics.attempt_errors(state)
+    if errors:
         checks.append({
             "name": "Internal errors",
             "severity": "blocker",
             "passed": False,
-            "detail": "; ".join(state["errors"]),
+            "detail": "; ".join(errors),
         })
         approve = False
 
@@ -198,6 +200,36 @@ def cleanup_node(state: PRReviewState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
+#: Add-reducer state keys stamped with the attempt's worktree basename
+#: at every node boundary (FR-O18 attempt scoping): entries restored
+#: from an earlier webhook event's checkpoint carry a foreign attempt
+#: and are filtered out by metrics/synthesizer consumers.
+_ATTEMPT_STAMPED = (
+    "findings", "errors", "node_durations", "processes", "llm_calls",
+)
+
+
+def _stamp_attempt(update: dict[str, Any], state: PRReviewState) -> dict[str, Any]:
+    """Tag node-output reducer entries with the current attempt.
+
+    ``errors`` entries arrive as plain strings; they are wrapped as
+    ``{"msg", "attempt"}`` dicts so the same discriminator applies.
+    """
+    attempt = Path(state.get("repo_path") or "").name or None
+    if not attempt:
+        return update
+    for key in _ATTEMPT_STAMPED:
+        items = update.get(key)
+        if not items:
+            continue
+        for i, item in enumerate(items):
+            if isinstance(item, str):
+                items[i] = {"msg": item, "attempt": attempt}
+            elif isinstance(item, dict):
+                item.setdefault("attempt", attempt)
+    return update
+
+
 def _timed(name: str, fn: Any) -> Any:
     """Wrap a node so its wall-clock duration lands in metrics state."""
 
@@ -208,7 +240,7 @@ def _timed(name: str, fn: Any) -> Any:
         durations = list(update.get("node_durations") or [])
         durations.append(metrics.node_duration(name, started))
         update["node_durations"] = durations
-        return update
+        return _stamp_attempt(update, state)
 
     return wrapper
 

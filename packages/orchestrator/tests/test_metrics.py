@@ -228,6 +228,43 @@ def test_attempt_stamped_records_drop_untagged_residue() -> None:
     assert len(rows) == 1 and rows[0][4] == "qa"
 
 
+def test_attempt_entries_scope_findings_processes_durations() -> None:
+    """FR-O18: findings/processes/node_durations are add-reducers too —
+    a re-run must report only the current attempt's entries."""
+    state = _full_state()  # repo_path ends in qg-abc123
+    state["processes"] = [
+        {"attempt": "qg-prior", "cmd": "old", "duration_s": 1.0},
+        {"attempt": "qg-abc123", "cmd": "new", "duration_s": 2.0},
+    ]
+    state["node_durations"] = [
+        {"attempt": "qg-prior", "node": "qa", "duration_s": 9.0},
+        {"attempt": "qg-abc123", "node": "review", "duration_s": 3.0},
+    ]
+    report = metrics.summarize(state)
+    assert report["processes"]["count"] == 1
+    assert [n["node"] for n in report["nodes"]] == ["review"]
+    state["findings"] = [
+        {"attempt": "qg-prior", "title": "stale"},
+        {"attempt": "qg-abc123", "title": "fresh"},
+    ]
+    assert [f["title"] for f in
+            metrics._attempt_entries(state, "findings")] == ["fresh"]
+
+
+def test_attempt_errors_normalizes_dict_and_str() -> None:
+    """errors entries arrive wrapped as {"msg", "attempt"} dicts; legacy
+    plain strings still surface via the unstamped path."""
+    state = _full_state()
+    state["errors"] = [
+        {"msg": "prior failure", "attempt": "qg-prior"},
+        {"msg": "current failure", "attempt": "qg-abc123"},
+    ]
+    assert metrics.attempt_errors(state) == ["current failure"]
+    legacy = _full_state()
+    legacy["errors"] = ["plain string error"]
+    assert metrics.attempt_errors(legacy) == ["plain string error"]
+
+
 def test_call_rows_map_per_call_fields() -> None:
     rows = metrics._call_rows(_full_state(), "run-1")
     assert len(rows) == 2
