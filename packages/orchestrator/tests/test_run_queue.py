@@ -27,20 +27,30 @@ class _FakeCursor:
 
 
 class _FakeConn:
+    """Models psycopg3 semantics: the `with` block commits on clean
+    exit and closes — a commit() after it would raise."""
+
     def __init__(self, cur) -> None:
         self.cur = cur
         self.committed = False
+        self.closed = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args) -> bool:
+        if args[0] is None:
+            self.committed = True
+        self.closed = True
         return False
 
     def cursor(self):
         return self.cur
 
     def commit(self) -> None:
+        if self.closed:
+            raise run_queue.psycopg.OperationalError(
+                "the connection is closed")
         self.committed = True
 
 
