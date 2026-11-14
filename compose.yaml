@@ -17,7 +17,7 @@ x-logging: &default-logging
 services:
   postgres:
     # FR-P14: pinned by index digest (dependabot docker bumps it).
-    image: postgres:16-alpine@sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663
+    image: docker.io/library/postgres:16-alpine@sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -33,7 +33,10 @@ services:
     ports:
       # Loopback only (FR-P9): local CLI runs reach postgres on
       # localhost:5432, but it is never reachable from outside the host.
-      - "127.0.0.1:5432:5432"
+      # FR-P34: QG_PG_PORT moves the host publish when another stack
+      # already owns 5432 on this host; internal traffic stays on
+      # postgres:5432 regardless.
+      - "127.0.0.1:${QG_PG_PORT:-5432}:5432"
     restart: unless-stopped
     logging: *default-logging
 
@@ -138,7 +141,7 @@ services:
     logging: *default-logging
 
   nginx:
-    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    image: docker.io/library/nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
     depends_on:
       - ingress
     volumes:
@@ -158,7 +161,7 @@ services:
   # domain: `docker compose --profile tls up -d`
   caddy:
     profiles: ["tls"]
-    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    image: docker.io/library/caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     depends_on:
       - nginx
     volumes:
@@ -179,7 +182,7 @@ services:
   ollama:
     # FR-P14: `latest` frozen to a digest — the tag moves, the build
     # doesn't. Dependabot refreshes the digest.
-    image: ollama/ollama:latest@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
+    image: docker.io/ollama/ollama:latest@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
     profiles: ["llm"]
     volumes:
       - ollama-models:/root/.ollama

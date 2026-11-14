@@ -1,0 +1,36 @@
+# FR-P31: keep the build context small and secrets-free.
+# Both Dockerfiles copy only pyproject.toml, uv.lock and packages/,
+# but the context upload itself must not carry local state or secrets.
+# Note: .dockerignore globs do not cross `/` — `**/` is required to
+# match a name at any depth.
+
+# Secrets / local env — never enter the context (defense in depth:
+# no instruction copies them today, but a future `COPY .` must not leak them)
+.env
+.env.*
+
+# Local environments and VCS
+.venv/
+.git/
+
+# Python caches — would otherwise be baked in by `COPY packages ./packages`
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Tests ship on the host and in CI, not in the runtime image
+packages/*/tests/
+
+# Local runtime data (bind-mount sources, dump dirs)
+pgdata/
+target-repo/
+
+# Tooling/config not needed in the image
+.devin/
+.github/
+docs/
+*.md
+deploy/
+compose*.yaml

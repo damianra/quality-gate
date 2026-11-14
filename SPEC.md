@@ -640,6 +640,7 @@ volatile during early history edits; commits are identified by subject):
 | 74 | `feat`: inspection signals + checklist + dedup (FR-C6..C10) |
 | 75 | `docs`: phase-4 host-readiness spec (FR-P31..P35) + FR-O26 PR review action |
 | 76 | `fix(orchestrator)`: drop commit() calls after psycopg context exit |
+| 77 | `build`: local host readiness for podman bring-up (FR-P31..P34) |
 
 ## 11. Extension points (SDD backlog)
 

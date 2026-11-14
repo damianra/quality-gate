@@ -87,11 +87,26 @@ cloudflared tunnel --url http://localhost:8089
 # prints https://<random>.trycloudflare.com
 ```
 
-### Option C — ngrok (account required)
+### Option C — ngrok (account required; fixed URL)
+
+The free tier includes **one reserved static domain**
+(<https://dashboard.ngrok.com/domains>) — the right choice for a
+webhook: the URL survives restarts so the GitHub webhook is configured
+once, not per session.
 
 ```bash
-ngrok http 8089   # https://<id>.ngrok-free.app
+ngrok config add-authtoken <token>    # once, from the dashboard
+ngrok http --url=https://<name>.ngrok-free.app 8089
 ```
+
+For a persistent local setup, a systemd *user* unit keeps it alive
+across reboots and tunnel drops (`Restart=on-failure`): store the
+domain in an `EnvironmentFile`, run
+`systemctl --user enable --now ngrok-quality-gate`, and optionally
+`loginctl enable-linger $USER` so it runs without a login session.
+
+Ephemeral mode (`ngrok http 8089`) still works but re-randomizes the
+subdomain each start — same caveat as §6.
 
 ### Option D — real exposure (router / VPS)
 
