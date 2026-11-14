@@ -438,6 +438,29 @@ duration lands in `node_durations`.
   GitHub App path (FR-P18) is the supported identity for this
   feature: a PAT belonging to the PR author can never approve.
 
+- **FR-O27 Grounded LLM findings.** LLM output must be anchored to
+  the supplied evidence, not free-generated. The output contract
+  requires every finding to carry `evidence` — a verbatim quote
+  (whitespace-normalized substring) of the supplied user-message
+  context proving the claim — and, when an `## Inspection checklist`
+  section is present, every numbered item to receive a verdict:
+  either a finding carrying `checklist_item` or an explicit
+  `{"checklist_item": N, "verdict": "ok"}` entry that is consumed
+  as coverage, not rendered. `_llm_findings` discards findings with
+  missing/short/non-verbatim evidence and counts them as
+  `ungrounded`; a parseable-but-fully-ungrounded result degrades to
+  an "LLM findings dropped (ungrounded)" info note and the call
+  record takes status `ungrounded` (alongside the existing
+  `ok|error|truncated|unparseable` statuses). Checklist items left
+  without any verdict produce an info note listing them. A bare
+  empty array `[]` is a VALID clean-PR answer (status `ok`, no
+  findings) — only foreign schemas and non-JSON output degrade to
+  `unparseable`. Small models confabulate plausible-sounding
+  summaries when asked open-endedly for "findings"; verbatim-evidence
+  validation plus closed checklist verdicts turns the task into
+  citing proof, which an 8B model can do reliably. LLM findings
+  remain additive-only per FR-O25.
+
 ## 5. Non-functional requirements
 
 - **NFR-1 Determinism.** The review is reproducible: same inputs → same
@@ -662,6 +685,7 @@ volatile during early history edits; commits are identified by subject):
 | 78 | `feat(mcp-server)`: FR-O26 PR review action (off|comment|approve, never fatal) |
 | 79 | `fix(orchestrator)`: attempt-scoped llm_calls accounting (FR-O18) |
 | 80 | `fix(orchestrator)`: drop unstamped llm_calls once attempt tags exist |
+| 81 | `feat(orchestrator)`: grounded LLM findings + checklist verdicts (FR-O27) |
 
 ## 11. Extension points (SDD backlog)
 

@@ -188,6 +188,11 @@ def test_synthesizer_rejects_on_internal_errors():
 # -- LLM enrichment (FR-O16) ------------------------------------------------- #
 
 
+def _llm_findings(*a, **k):
+    """Unwrap the FR-O27 dict return to the findings list."""
+    return agents._llm_findings(*a, **k)["findings"]
+
+
 def _fake_cfg(monkeypatch, **meta):
     """Patch for_role -> enabled test cfg; complete_with_meta -> meta/raise."""
     cfg = agents.llm.LLMConfig(
@@ -233,7 +238,7 @@ def test_enrich_config_error_degrades(monkeypatch):
 def test_enrich_ok_merges_findings_and_records_call(monkeypatch):
     _fake_cfg(monkeypatch, meta={
         "text": 'preamble [{"severity": "blocker", "title": "Leaked key",'
-                ' "detail": "api key in diff", "file": "a.js"}] tail',
+                ' "detail": "api key in diff", "file": "a.js", "evidence": "## Deterministic signals"}] tail',
         "usage": {"prompt_tokens": 10, "completion_tokens": 20},
         "finish_reason": "stop", "truncated": False, "duration_s": 1.5,
     })
@@ -290,7 +295,7 @@ def test_enrich_registers_subprocess_pgid(monkeypatch):
 def test_llm_findings_clamps_bad_severity_and_caps():
     import json as _json
     items = [{"severity": "critical", "title": "t", "detail": "d"}] * 15
-    out = agents._llm_findings("security", _json.dumps(items))
+    out = _llm_findings("security", _json.dumps(items))
     assert len(out) == agents._LLM_MAX_FINDINGS
     assert all(f["severity"] == "info" for f in out)
     assert all(f["title"].startswith("LLM: ") for f in out)
@@ -302,7 +307,7 @@ def test_llm_findings_clamps_bad_severity_and_caps():
 def test_review_specialist_merges_llm_enrichment(monkeypatch):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "warning", "title": "Scope smell",'
-                ' "detail": "diff touches unrelated dirs", "file": null}]',
+                ' "detail": "diff touches unrelated dirs", "file": null, "evidence": "## Deterministic signals"}]',
         "usage": {"prompt_tokens": 5, "completion_tokens": 6},
         "finish_reason": "stop", "truncated": False, "duration_s": 0.9,
     })
@@ -328,7 +333,7 @@ def test_review_specialist_deterministic_when_llm_disabled(monkeypatch):
 def test_security_specialist_merges_llm_enrichment(monkeypatch):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "blocker", "title": "Rotated token leaked",'
-                ' "detail": "old key still valid", "file": ".env"}]',
+                ' "detail": "old key still valid", "file": ".env", "evidence": "## Deterministic signals"}]',
         "usage": {"prompt_tokens": 7, "completion_tokens": 9},
         "finish_reason": "stop", "truncated": False, "duration_s": 1.1,
     })
@@ -345,7 +350,7 @@ def test_enrich_parses_findings_after_think_block(monkeypatch):
     _fake_cfg(monkeypatch, meta={
         "text": '<think>let me analyze the diff for secrets\n</think>\n'
                 '[{"severity": "blocker", "title": "Leaked key",'
-                ' "detail": "x", "file": "src/keys.ts"}]',
+                ' "detail": "x", "file": "src/keys.ts", "evidence": "## Deterministic signals"}]',
         "usage": {"prompt_tokens": 7, "completion_tokens": 9},
         "finish_reason": "stop", "truncated": False, "duration_s": 1.1,
     })
@@ -359,24 +364,24 @@ def test_enrich_parses_findings_after_think_block(monkeypatch):
 def test_llm_findings_parses_wrapper_and_single_dict():
     """json_object mode can emit {findings:[...]} or a bare finding dict."""
     wrapped = '{"findings": [{"severity": "warning", "title": "A", "file": "x.ts"}]}'
-    found = agents._llm_findings("security", wrapped)
+    found = _llm_findings("security", wrapped)
     assert found[0]["title"] == "LLM: A" and found[0]["severity"] == "warning"
 
     single = '{"severity": "blocker", "title": "B", "detail": "d"}'
-    found = agents._llm_findings("security", single)
+    found = _llm_findings("security", single)
     assert len(found) == 1 and found[0]["title"] == "LLM: B"
 
     # regression: prose with an embedded array still parses
     prose = 'Analysis done. Result: [{"severity": "info", "title": "C"}] — see above'
-    found = agents._llm_findings("security", prose)
+    found = _llm_findings("security", prose)
     assert len(found) == 1 and found[0]["title"] == "LLM: C"
 
     # dict without findings/list values -> empty
-    assert agents._llm_findings("security", '{"result": 42}') == []
+    assert _llm_findings("security", '{"result": 42}') == []
 
     # explicit "findings" key wins over other list values
     mixed = '{"files": ["a.py"], "findings": [{"severity": "info", "title": "D"}]}'
-    found = agents._llm_findings("security", mixed)
+    found = _llm_findings("security", mixed)
     assert len(found) == 1 and found[0]["title"] == "LLM: D"
 
 
@@ -393,7 +398,7 @@ def test_llm_findings_skips_foreign_schema():
             {"file": "src/b.js", "changes": ["updated tests"]},
         ],
     })
-    assert agents._llm_findings("security", foreign) == []
+    assert _llm_findings("security", foreign) == []
 
 
 def test_llm_findings_content_aliases_and_filter():
@@ -403,7 +408,7 @@ def test_llm_findings_content_aliases_and_filter():
         {"severity": "info", "title": "only a title"},
         {"severity": "info", "file": "c.ts", "changes": ["x"]},  # no content
     ]
-    out = agents._llm_findings("review", _json.dumps(items))
+    out = _llm_findings("review", _json.dumps(items))
     assert len(out) == 2
     assert out[0]["detail"] == "alt-key detail"
     assert out[0]["title"] == "LLM: alt-key detail"   # detail fills the title
@@ -426,7 +431,8 @@ def test_enrich_foreign_schema_degrades(monkeypatch):
 def test_qa_specialist_merges_llm_enrichment(monkeypatch, tmp_path):
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "warning", "title": "Untested edge case",'
-                ' "detail": "rollback path has no test", "file": null}]',
+                ' "detail": "rollback path has no test", "file": null,'
+                ' "evidence": "## Deterministic signals"}]',
         "usage": {"prompt_tokens": 11, "completion_tokens": 13},
         "finish_reason": "stop", "truncated": False, "duration_s": 0.7,
     })
@@ -475,7 +481,8 @@ def test_qa_specialist_enriches_normal_path(monkeypatch, tmp_path):
     """Validators found -> command loop runs -> enrichment still merges."""
     _fake_cfg(monkeypatch, meta={
         "text": '[{"severity": "info", "title": "Edge path untested",'
-                ' "detail": "x", "file": null}]',
+                ' "detail": "x", "file": null,'
+                ' "evidence": "## Deterministic signals"}]',
         "usage": {"prompt_tokens": 3, "completion_tokens": 4},
         "finish_reason": "stop", "truncated": False, "duration_s": 0.2,
     })
@@ -915,6 +922,108 @@ def test_llm_user_message_neutralizes_embedded_sentinels():
     assert msg.count(agents._UNTRUSTED_CLOSE) == 1
 
 
+# -- FR-O27: grounded findings + checklist verdicts --------------------------- #
+
+_CTX = "## Diff\n+ remote remove origin\n+ remote add origin git@x\n"
+
+
+def test_llm_findings_evidence_must_be_verbatim():
+    """FR-O27: a finding grounded in the context survives; a confabulated
+    one (evidence absent from the context) is dropped as ungrounded."""
+    import json as _json
+    items = [
+        {"severity": "warning", "title": "remote lost", "detail": "d",
+         "evidence": "remote remove origin"},
+        {"severity": "warning", "title": "db tunnel", "detail": "d",
+         "evidence": "ssh tunnel to the database server"},
+    ]
+    r = agents._llm_findings("security", _json.dumps(items), context=_CTX)
+    assert len(r["findings"]) == 1
+    assert r["findings"][0]["title"] == "LLM: remote lost"
+    assert "> remote remove origin" in r["findings"][0]["detail"]
+    assert r["ungrounded"] == 1
+
+
+def test_llm_findings_short_or_missing_evidence_ungrounded():
+    import json as _json
+    items = [
+        {"severity": "info", "title": "t", "detail": "d",
+         "evidence": "x"},                       # too short to prove
+        {"severity": "info", "title": "t", "detail": "d"},  # no evidence
+    ]
+    r = agents._llm_findings("review", _json.dumps(items), context=_CTX)
+    assert r["findings"] == [] and r["ungrounded"] == 2
+
+
+def test_llm_findings_evidence_whitespace_normalized():
+    """A quote spanning a newline still matches normalized context."""
+    import json as _json
+    items = [{"severity": "info", "title": "t", "detail": "d",
+              "evidence": "remote remove   \n  origin"}]
+    r = agents._llm_findings("review", _json.dumps(items), context=_CTX)
+    assert len(r["findings"]) == 1 and r["ungrounded"] == 0
+
+
+def test_llm_findings_checklist_verdicts_and_uncovered():
+    import json as _json
+    items = [
+        {"checklist_item": 1, "verdict": "ok"},
+        {"severity": "warning", "title": "gap", "detail": "d",
+         "evidence": "remote remove origin", "checklist_item": 2},
+    ]
+    r = agents._llm_findings(
+        "qa", _json.dumps(items), context=_CTX, checklist_count=3)
+    assert len(r["findings"]) == 1          # verdict entry not rendered
+    assert r["uncovered"] == [3]
+
+
+def test_llm_findings_clean_empty_array():
+    r = agents._llm_findings("review", "[]")
+    assert r["clean"] is True and r["findings"] == []
+
+
+def test_enrich_all_ungrounded_degrades(monkeypatch):
+    """Confabulated output (the qwen 'ssh tunnel' pattern) must not reach
+    the verdict — it degrades to an explicit ungrounded note."""
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"severity": "info", "title": "SSH tunnel for DB",'
+                ' "detail": "adds --ssh-tunnel flag",'
+                ' "evidence": "a quote not in the context"}]',
+        "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.5,
+    })
+    out = agents._llm_enrich("security", agents.SECURITY_PROMPT, _state())
+    assert out["findings"][0]["title"] == "LLM findings dropped (ungrounded)"
+    assert out["llm_calls"][0]["status"] == "ungrounded"
+
+
+def test_enrich_clean_empty_answer_is_ok(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": "[]", "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.1,
+    })
+    out = agents._llm_enrich("review", agents.REVIEW_PROMPT, _state())
+    assert out["findings"] == []               # no unparseable noise
+    assert out["llm_calls"][0]["status"] == "ok"
+
+
+def test_enrich_uncovered_checklist_items_noted(monkeypatch):
+    _fake_cfg(monkeypatch, meta={
+        "text": '[{"checklist_item": 1, "verdict": "ok"}]',
+        "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.3,
+    })
+    state = _state(signals={"untested_paths": [
+        {"file": "a.js", "line": "throw x", "covered": False},
+        {"file": "b.js", "line": "rollback", "covered": False},
+    ]})
+    out = agents._llm_enrich("qa", agents.QA_PROMPT, state)
+    titles = [f["title"] for f in out["findings"]]
+    assert "LLM checklist items unaddressed" in titles
+    assert "[2]" in out["findings"][0]["detail"]
+    assert out["llm_calls"][0]["status"] == "ok"
+
+
 def test_llm_findings_drops_file_outside_changed_files():
     import json as _json
     items = [
@@ -923,7 +1032,7 @@ def test_llm_findings_drops_file_outside_changed_files():
         {"severity": "warning", "title": "t2", "detail": "d",
          "file": "etc/passwd"},
     ]
-    out = agents._llm_findings(
+    out = _llm_findings(
         "security", _json.dumps(items), known_files={"src/real.py"})
     assert out[0]["file"] == "src/real.py"
     assert out[1]["file"] is None
@@ -933,7 +1042,7 @@ def test_llm_findings_no_known_files_keeps_file():
     import json as _json
     items = [{"severity": "info", "title": "t", "detail": "d",
               "file": "any/path.py"}]
-    out = agents._llm_findings("review", _json.dumps(items))
+    out = _llm_findings("review", _json.dumps(items))
     assert out[0]["file"] == "any/path.py"
 
 
