@@ -56,6 +56,14 @@ RETRY_ATTEMPTS = int(os.environ.get("QG_RETRY_ATTEMPTS", "3"))
 #: Backoff base seconds — delay is base * 2**attempt, or Retry-After.
 RETRY_BACKOFF_S = float(os.environ.get("QG_RETRY_BACKOFF_S", "2"))
 
+# --- FR-O26: optional GitHub PR review submission ----------------------------
+#: `off` (default) submits nothing; `comment` submits a COMMENT review
+#: every run; `approve` submits APPROVE only on approved verdicts.
+#: Unrecognized values fail closed to `off`.
+PR_REVIEW_ACTION = os.environ.get("QG_PR_REVIEW_ACTION", "off").strip().lower()
+if PR_REVIEW_ACTION not in ("off", "comment", "approve"):
+    PR_REVIEW_ACTION = "off"
+
 # --- Vibecoding scanner thresholds -------------------------------------------
 
 LARGE_DIFF_FILES = int(os.environ.get("QG_LARGE_DIFF_FILES", "10"))

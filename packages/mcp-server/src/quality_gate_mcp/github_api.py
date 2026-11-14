@@ -173,3 +173,28 @@ class GitHubClient:
         )
         r.raise_for_status()
         return r.json()
+
+    # -- pull request reviews ------------------------------------------------- #
+
+    def submit_pr_review(
+        self, slug: str, pr_number: int, event: str, body: str = "",
+        commit_id: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /repos/{slug}/pulls/{n}/reviews — APPROVE/COMMENT/etc.
+
+        ``commit_id`` pins the review to a specific head so a push racing
+        between the verdict and this call cannot reattach it to a newer
+        commit. GitHub rejects a review whose author is the PR's own
+        author (self-approve) with 422, and requires pull-requests write
+        scope.
+        """
+        payload: dict[str, Any] = {"event": event, "body": body}
+        if commit_id:
+            payload["commit_id"] = commit_id
+        r = self._send(
+            "POST",
+            f"/repos/{slug}/pulls/{pr_number}/reviews",
+            json=payload,
+        )
+        r.raise_for_status()
+        return r.json()

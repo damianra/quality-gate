@@ -91,8 +91,9 @@ def test_find_verdict_comment_picks_latest():
 class _FakeGH:
     """Minimal GitHubClient stand-in for post_verdict tests."""
 
-    def __init__(self, comments):
+    def __init__(self, comments, review_exc=None):
         self._comments = comments
+        self._review_exc = review_exc
         self.calls = []
 
     def __enter__(self):
@@ -113,6 +114,12 @@ class _FakeGH:
 
     def create_issue_comment(self, slug, number, body):
         self.calls.append(("create", number))
+        return {"html_url": "u"}
+
+    def submit_pr_review(self, slug, number, event, body, commit_id=None):
+        self.calls.append(("review", event))
+        if self._review_exc is not None:
+            raise self._review_exc
         return {"html_url": "u"}
 
 
@@ -146,6 +153,55 @@ def test_post_verdict_creates_when_no_marker(monkeypatch):
     _patch_post_env(monkeypatch, gh)
     out = tools.post_verdict("/tmp", 1, True, [])
     assert out["action"] == "created"
+
+
+# -- FR-O26: optional PR review submission ------------------------------------ #
+
+def test_review_action_off_by_default(monkeypatch):
+    gh = _FakeGH([])
+    _patch_post_env(monkeypatch, gh)
+    out = tools.post_verdict("/tmp", 1, True, [])
+    assert out["review"] == "off"
+    assert all(c[0] != "review" for c in gh.calls)
+
+
+def test_review_action_approve_submits_approve(monkeypatch):
+    gh = _FakeGH([])
+    _patch_post_env(monkeypatch, gh)
+    monkeypatch.setattr(tools.config, "PR_REVIEW_ACTION", "approve")
+    out = tools.post_verdict("/tmp", 1, True, [])
+    assert out["review"] == "approve"
+    assert ("review", "APPROVE") in gh.calls
+
+
+def test_review_action_approve_comments_on_rejection(monkeypatch):
+    """A non-approved verdict under approve mode submits COMMENT, never
+    REQUEST_CHANGES — a false positive must not hard-block merges."""
+    gh = _FakeGH([])
+    _patch_post_env(monkeypatch, gh)
+    monkeypatch.setattr(tools.config, "PR_REVIEW_ACTION", "approve")
+    out = tools.post_verdict("/tmp", 1, False, [])
+    assert out["review"] == "comment"
+    assert ("review", "COMMENT") in gh.calls
+
+
+def test_review_action_comment_always_comments(monkeypatch):
+    gh = _FakeGH([])
+    _patch_post_env(monkeypatch, gh)
+    monkeypatch.setattr(tools.config, "PR_REVIEW_ACTION", "comment")
+    out = tools.post_verdict("/tmp", 1, True, [])
+    assert out["review"] == "comment"
+
+
+def test_review_action_failure_never_breaks(monkeypatch):
+    """Self-approve (422) or any API error degrades to a warning — the
+    verdict comment and the run lifecycle are unaffected."""
+    gh = _FakeGH([], review_exc=Exception("422 Can not approve your own pull request"))
+    _patch_post_env(monkeypatch, gh)
+    monkeypatch.setattr(tools.config, "PR_REVIEW_ACTION", "approve")
+    out = tools.post_verdict("/tmp", 1, True, [])
+    assert out["action"] == "created"
+    assert out["review"] == "failed"
 
 
 def test_pr_review_status_pending_vs_reviewed():
