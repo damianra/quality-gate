@@ -70,9 +70,9 @@ you can run today with `docker compose` (or Podman).
 - **Tools server**: deterministic analysis exposed as MCP tools
 - **LLM layer**: pluggable providers — Ollama, OpenAI, Anthropic,
   OpenRouter, NVIDIA NIM, custom endpoints, CLI agents
-- **Ingress**: FastAPI webhook receiver behind nginx (allowlist +
-  rate-limit + HMAC)
+- **Ingress**: FastAPI webhook receiver behind nginx (path allowlist +
+  rate-limit); webhook payloads are HMAC-verified before anything runs
 - **State**: PostgreSQL (durable queue, checkpoints, run metrics)
 
-MIT-licensed. Contributions welcome — every PR gets reviewed, possibly
-by the system itself.
+Self-hosted and hackable — every PR gets reviewed, possibly by the
+system itself.
