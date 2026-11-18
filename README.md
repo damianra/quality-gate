@@ -109,7 +109,7 @@ The published comment is always:
 **Result:** <summary>
 **Note:** <note>
 
-**Validated in sandbox:** <step → pass/fail/timeout>  # FR-O28, when steps ran
+**Validated in sandbox:** <step → pass/fail/timeout>  # FR-O28, steps that ran in-sandbox
 
 **Metrics:** <one-liner>
 <details><summary>LLM telemetry</summary>   # per-model table, when calls ran
@@ -133,9 +133,11 @@ validators, the dependency audit and the functional stage:
   step is a blocker; other failures warn — pre-existing breakage never
   hard-blocks a merge. Step results appear in the verdict's
   `Validated in sandbox` line.
-- **Containment.** `run --rm --init`, `--network none` by default
-  (egress only for the dep audit, `net: true` steps or
-  `QG_SANDBOX_ALLOW_NET`), read-only rootfs + worktree (podman `:O`
+- **Containment.** `run --rm --init`, `--network none` by default —
+  egress goes only to the dependency audit and to steps when the
+  operator opts in globally (`QG_SANDBOX_ALLOW_NET` honors `net: true`
+  declarations, so a PR can't grant itself network), read-only rootfs
+  + worktree (podman `:O`
   overlay / docker ro+tmpfs), non-root user, `no-new-privileges`,
   `--cap-drop ALL`, memory/cpu/pids caps and a whitelisted env —
   secrets never enter the sandbox.

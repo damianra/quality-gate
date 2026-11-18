@@ -6,5 +6,6 @@ steps:
     timeout: 300
     required: true
     # uv resolves/builds the workspace venv inside the sandbox overlay —
-    # it needs registry egress on first run.
+    # it needs registry egress on first run. Honored only when the
+    # operator sets QG_SANDBOX_ALLOW_NET=1.
     net: true

@@ -207,7 +207,7 @@ def cleanup_node(state: PRReviewState) -> dict[str, Any]:
     report = cleanup.terminate_pgids(state.get("active_pgids", []))
     # FR-O28/INV-2 extension: stale qg-* sandboxes from crashed runs are
     # swept like worktree dirs — non-running containers only.
-    report["sandbox_containers"] = sandbox.sweep(state.get("repo_path", ""))
+    report["sandbox_containers"] = sandbox.sweep()
     logger.info("cleanup report: %s", report)
     return {"cleanup_report": report}
 

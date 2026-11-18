@@ -28,7 +28,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from quality_gate_mcp import tools as mcp_tools
+from quality_gate_mcp import git_ops
 
 from . import config
 
@@ -98,19 +98,53 @@ def available() -> bool:
     return rt is not None and _image_present(rt)
 
 
-def _env_args() -> list[str]:
-    """In-container env whitelist: fixed base vars plus host vars whose
-    name matches a ``QG_SANDBOX_ENV_ALLOW`` prefix. Secrets (``*_API_KEY``,
-    ``*_SECRET``, ``*_TOKEN``) are never forwarded."""
-    env = dict(_BASE_ENV)
-    for name, value in os.environ.items():
-        if name.endswith(("_API_KEY", "_SECRET", "_TOKEN")):
+#: Credential markers — a forwarded name containing any of these
+#: (case-insensitive) is denied, even when its prefix is allowlisted.
+#: Substring match because credential var names are irregular:
+#: ``npm_config_//reg/:_authToken``, ``AWS_SECRET_ACCESS_KEY``,
+#: ``*_PASSWORD`` don't share a single suffix.
+_DENY_MARKERS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD",
+                 "CREDENTIAL", "PRIVATE", "AUTH")
+
+
+def _secret_name(name: str) -> bool:
+    up = name.upper()
+    return up.endswith("_KEY") or any(m in up for m in _DENY_MARKERS)
+
+
+def _env_spec() -> dict[str, str | None]:
+    """In-container env whitelist as {name: value|None} — ``None`` means
+    passthrough (``--env NAME``, the runtime copies the value from the
+    client's own scrubbed env so secrets never appear in argv).
+
+    Whitelisted host vars are forwarded only when their name carries no
+    credential marker (``_secret_name``); literal base vars keep
+    ``--env K=V`` (no secrets among them)."""
+    env: dict[str, str | None] = dict(_BASE_ENV)
+    for name in os.environ:
+        if _secret_name(name):
             continue
         # Trailing ``*`` = prefix match; otherwise exact name.
         if any(name.startswith(p[:-1]) if p.endswith("*")
                else name == p for p in config.SANDBOX_ENV_ALLOW):
-            env[name] = value
-    return [a for pair in env.items() for a in ("--env", f"{pair[0]}={pair[1]}")]
+            env[name] = None  # passthrough — value stays out of argv
+    return env
+
+
+def _env_args(spec: dict[str, str | None]) -> list[str]:
+    return [a for k, v in spec.items()
+            for a in ("--env", k if v is None else f"{k}={v}")]
+
+
+def _client_env(spec: dict[str, str | None]) -> dict[str, str]:
+    """Env for the host-side container client: the FR-P11 scrubbed set
+    plus the forwarded (already credential-filtered) tool vars the
+    ``--env NAME`` passthroughs resolve from."""
+    env = git_ops.scrub_env()
+    for k, v in spec.items():
+        if v is None and k in os.environ:
+            env[k] = os.environ[k]
+    return env
 
 
 def _mount_args(rt: str, repo: Path) -> list[str]:
@@ -138,7 +172,7 @@ def container_argv(repo: Path, argv: list[str], *, name: str,
         "--cpus", config.SANDBOX_CPUS,
         "--pids-limit", config.SANDBOX_PIDS,
         *_mount_args(rt, repo),
-        *_env_args(),
+        *_env_args(_env_spec()),
     ]
     for k, v in _RO_REDIRECTS.items():
         args += ["--env", f"{k}={v}"]
@@ -169,8 +203,9 @@ def run(repo: Path | str, argv: list[str], timeout: int | None = None,
     repo = Path(repo)
     name = f"qg-{os.getpid()}-{next(_seq)}"
     cargv = container_argv(repo, argv, name=name, net=net, rt=rt)
-    res = mcp_tools.spawn_process(
-        str(repo), cargv[0], cargv[1:], timeout=timeout)
+    res = git_ops.spawn_tracked(
+        str(repo), cargv[0], cargv[1:], timeout=timeout,
+        env=_client_env(_env_spec()))
     if res["timed_out"]:
         _kill_container(rt, name)
     res["sandboxed"] = True
@@ -209,7 +244,7 @@ class ExecBudget:
         return run(repo, argv, timeout, net=net)
 
 
-def sweep(repo: Path | str) -> list[str]:
+def sweep() -> list[str]:
     """Remove stale ``qg-*`` sandboxes left by crashed runs (INV-2 ext).
 
     Only non-running containers (``created``/``exited``) are touched —

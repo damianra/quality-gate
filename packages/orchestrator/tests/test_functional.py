@@ -141,6 +141,7 @@ def test_functional_optional_failure_and_timeout_are_warnings(
 
 def test_functional_sandbox_path(tmp_path, monkeypatch):
     monkeypatch.setattr(functional.sandbox, "available", lambda: True)
+    monkeypatch.setattr(config, "SANDBOX_ALLOW_NET", True)
     seen = []
     monkeypatch.setattr(
         functional.sandbox, "run",
@@ -153,6 +154,26 @@ def test_functional_sandbox_path(tmp_path, monkeypatch):
     assert seen == [(["pytest"], True)]
     assert out["processes"][0]["sandboxed"] is True
     assert out["findings"] == []
+
+
+def test_functional_step_egress_requires_global_optin(
+        tmp_path, monkeypatch):
+    """A PR-controlled contract cannot grant itself egress: net: true
+    is honored only under QG_SANDBOX_ALLOW_NET."""
+    monkeypatch.setattr(functional.sandbox, "available", lambda: True)
+    monkeypatch.setattr(config, "SANDBOX_ALLOW_NET", False)
+    seen = []
+    monkeypatch.setattr(
+        functional.sandbox, "run",
+        lambda repo, argv, timeout, *, net=False:
+            seen.append((argv, net)) or
+            {**_spawn(), "sandboxed": True, "container": "qg-1-1"})
+    (tmp_path / "quality-gate.yaml").write_text(
+        "steps:\n  - {name: t, argv: ['pytest'], net: true}\n")
+    out = functional.run_functional(tmp_path)
+    assert seen == [(["pytest"], False)]
+    assert any(f["title"] == "Step egress denied: t"
+               for f in out["findings"])
 
 
 def test_functional_malformed_contract_warns_and_autodetects(

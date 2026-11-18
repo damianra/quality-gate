@@ -500,9 +500,10 @@ duration lands in `node_durations`.
   uniformly, and the isolation contract is identical either way.
   Contract per sandboxed command: `--network none` by default —
   egress is opt-in per consumer: the FR-O24 dependency audit needs
-  OSV API access, contract steps may declare `net: true`, and
-  `QG_SANDBOX_ALLOW_NET` grants egress globally (e.g. for
-  dependency-install steps). Read-only rootfs, the worktree
+  OSV API access, contract steps may declare `net: true` (honored
+  only under the global `QG_SANDBOX_ALLOW_NET` opt-in — a PR cannot
+  grant itself egress), and `QG_SANDBOX_ALLOW_NET` grants egress
+  globally (e.g. for dependency-install steps). Read-only rootfs, the worktree
   bind-mounted read-only at `/src`, plus a per-run writable scratch
   mount covering toolchain caches and build artifacts (`.venv`,
   `node_modules`, `target/`, `GOMODCACHE`… — functional steps need

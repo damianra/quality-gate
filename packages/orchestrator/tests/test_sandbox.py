@@ -8,6 +8,8 @@ import pytest
 
 from pr_review_orch import config, sandbox
 
+_real_available = sandbox.available
+
 
 def _which_only(names):
     return lambda cmd: f"/usr/bin/{cmd}" if cmd in names else None
@@ -48,6 +50,8 @@ def test_runtime_pinned_missing_binary(monkeypatch):
 def test_available_requires_image(monkeypatch):
     monkeypatch.setattr(config, "SANDBOX_MODE", "auto")
     monkeypatch.setattr(sandbox.shutil, "which", _which_only({"podman"}))
+    # The conftest fixture stubs available() off — restore the real one.
+    monkeypatch.setattr(sandbox, "available", _real_available)
     monkeypatch.setattr(sandbox, "_image_checked", {"podman": False})
     assert sandbox.available() is False
     monkeypatch.setattr(sandbox, "_image_checked", {"podman": True})
@@ -88,19 +92,37 @@ def test_container_argv_docker_ro_mount_and_redirects(tmp_path):
     assert "CARGO_TARGET_DIR=/tmp/target" in envs
 
 
-def test_env_args_never_forward_secrets(monkeypatch):
+def test_env_spec_never_forwards_credentials(monkeypatch):
+    """Credential-marked names are denied even under an allowlist match;
+    allowed vars passthrough by name so values stay out of argv."""
     monkeypatch.setenv("GITHUB_TOKEN", "x")
     monkeypatch.setenv("MY_API_KEY", "x")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "x")
+    monkeypatch.setenv("npm_config_//reg/:_authToken", "x")
     monkeypatch.setenv("UV_INDEX_URL", "https://example")
-    monkeypatch.setattr(config, "SANDBOX_ENV_ALLOW", ("UV_*",))
-    envs = sandbox._env_args()
-    names = {e.split("=", 1)[0] for e in envs if e.startswith("PATH=")
-             or "=" in e}
-    joined = " ".join(envs)
-    assert "GITHUB_TOKEN" not in joined
-    assert "MY_API_KEY" not in joined
-    assert "UV_INDEX_URL=https://example" in envs
+    monkeypatch.setattr(config, "SANDBOX_ENV_ALLOW",
+                        ("UV_*", "NPM_CONFIG_*", "AWS_*"))
+    spec = sandbox._env_spec()
+    assert "GITHUB_TOKEN" not in spec
+    assert "MY_API_KEY" not in spec
+    assert "AWS_SECRET_ACCESS_KEY" not in spec
+    assert "npm_config_//reg/:_authToken" not in spec
+    assert spec["UV_INDEX_URL"] is None  # passthrough, no value in argv
+    assert spec["HOME"] == "/tmp"
+    envs = sandbox._env_args(spec)
+    assert "UV_INDEX_URL" in envs and "UV_INDEX_URL=https://example" \
+        not in envs
     assert "HOME=/tmp" in envs
+
+
+def test_client_env_adds_forwarded_vars_to_scrubbed(monkeypatch):
+    monkeypatch.setenv("UV_INDEX_URL", "https://example")
+    monkeypatch.setenv("GITHUB_TOKEN", "x")
+    monkeypatch.setattr(config, "SANDBOX_ENV_ALLOW", ("UV_*",))
+    spec = sandbox._env_spec()
+    env = sandbox._client_env(spec)
+    assert env["UV_INDEX_URL"] == "https://example"
+    assert "GITHUB_TOKEN" not in env
 
 
 # -- run() + second-net kill -------------------------------------------------- #
@@ -117,11 +139,12 @@ def test_run_builds_container_and_marks_sandboxed(monkeypatch, tmp_path):
     monkeypatch.setattr(sandbox.shutil, "which", _which_only({"podman"}))
     seen = {}
 
-    def fake_spawn(repo, cmd, args, timeout=None):
+    def fake_spawn(repo, cmd, args, timeout=None, env=None):
         seen["argv"] = [cmd, *args]
+        seen["env"] = env
         return _spawn_result()
 
-    monkeypatch.setattr(sandbox.mcp_tools, "spawn_process", fake_spawn)
+    monkeypatch.setattr(sandbox.git_ops, "spawn_tracked", fake_spawn)
     res = sandbox.run(tmp_path, ["pytest", "-q"], timeout=60)
     assert res["sandboxed"] is True
     assert res["container"].startswith("qg-")
@@ -133,7 +156,7 @@ def test_run_timeout_kills_named_container(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SANDBOX_MODE", "podman")
     monkeypatch.setattr(sandbox.shutil, "which", _which_only({"podman"}))
     monkeypatch.setattr(
-        sandbox.mcp_tools, "spawn_process",
+        sandbox.git_ops, "spawn_tracked",
         lambda *a, **k: _spawn_result(timed_out=True, exit_code=-9))
     killed = []
     monkeypatch.setattr(
@@ -157,7 +180,7 @@ def test_exec_budget_blocks_beyond_max(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SANDBOX_MODE", "podman")
     monkeypatch.setattr(sandbox.shutil, "which", _which_only({"podman"}))
     monkeypatch.setattr(
-        sandbox.mcp_tools, "spawn_process",
+        sandbox.git_ops, "spawn_tracked",
         lambda *a, **k: _spawn_result())
     budget = sandbox.ExecBudget(max_calls=1)
     assert budget.exec(tmp_path, ["pytest"])["exit_code"] == 0
@@ -195,11 +218,11 @@ def test_sweep_removes_only_stale_qg_containers(monkeypatch, tmp_path):
         return R()
 
     monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
-    removed = sandbox.sweep(tmp_path)
+    removed = sandbox.sweep()
     assert sorted(removed) == ["qg-9-1", "qg-9-2"]
     assert ["podman", "rm", "-f", "other-name"] not in calls
 
 
 def test_sweep_no_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SANDBOX_MODE", "0")
-    assert sandbox.sweep(tmp_path) == []
+    assert sandbox.sweep() == []

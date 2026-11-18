@@ -137,9 +137,19 @@ def run_functional(repo: Path) -> dict[str, Any]:
 
     for step in steps:
         cmdline = " ".join(step["argv"])
+        # PR-declared egress is gated on the global opt-in: a hostile
+        # contract cannot grant itself network access by writing
+        # `net: true` (the FR-O24 audit's egress is service-level and
+        # unaffected).
+        step_net = step["net"] and config.SANDBOX_ALLOW_NET
+        if step["net"] and not step_net:
+            out["findings"].append(_finding(
+                "info", f"Step egress denied: {step['name']}",
+                f"`{cmdline}` declares net: true but "
+                "QG_SANDBOX_ALLOW_NET=0 — running without egress."))
         if use_sandbox:
             res = sandbox.run(repo, step["argv"], step["timeout"],
-                              net=step["net"])
+                              net=step_net)
         else:
             res = mcp_tools.spawn_process(
                 str(repo), step["argv"][0], step["argv"][1:],

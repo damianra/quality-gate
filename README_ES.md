@@ -112,7 +112,7 @@ El comentario publicado siempre tiene esta forma:
 **Result:** <resumen>
 **Note:** <nota>
 
-**Validated in sandbox:** <paso → pass/fail/timeout>  # FR-O28, cuando corren pasos
+**Validated in sandbox:** <paso → pass/fail/timeout>  # FR-O28, pasos que corrieron en sandbox
 
 **Metrics:** <una línea>
 <details><summary>LLM telemetry</summary>   # tabla por modelo, si hubo llamadas
@@ -138,9 +138,11 @@ funcional:
   fallido es blocker; el resto son warnings — una rotura preexistente
   nunca bloquea un merge. Los resultados aparecen en la línea
   `Validated in sandbox` del veredicto.
-- **Contención.** `run --rm --init`, `--network none` por defecto
-  (egress solo para la auditoría, pasos `net: true` o
-  `QG_SANDBOX_ALLOW_NET`), rootfs y worktree de solo lectura (overlay
+- **Contención.** `run --rm --init`, `--network none` por defecto —
+  el egress va solo a la auditoría de dependencias y a los pasos
+  cuando el operador lo habilita globalmente (`QG_SANDBOX_ALLOW_NET`
+  honra las declaraciones `net: true`, así un PR no puede otorgarse
+  red a sí mismo), rootfs y worktree de solo lectura (overlay
   `:O` de podman / ro+tmpfs en docker), usuario no-root,
   `no-new-privileges`, `--cap-drop ALL`, límites de memoria/CPU/pids y
   env por whitelist — los secretos nunca entran al sandbox.
