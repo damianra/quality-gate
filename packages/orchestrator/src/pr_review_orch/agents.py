@@ -22,7 +22,7 @@ from typing import Any
 
 from quality_gate_mcp import tools as mcp_tools
 
-from . import config, llm
+from . import config, functional, llm, sandbox
 from .prompts import QA_PROMPT, REVIEW_PROMPT, SECURITY_PROMPT
 
 logger = logging.getLogger("pr-review-orch")
@@ -800,6 +800,20 @@ def _is_dep_manifest(path: str) -> bool:
         name.startswith("requirements") and name.endswith(".txt"))
 
 
+def _run_pr_command(repo: Path, argv: list[str], timeout: int,
+                    *, net: bool = False) -> dict[str, Any]:
+    """Run a PR-controlled command through the FR-O28 sandbox when
+    usable, else host ``spawn_process``. Same return dict either way —
+    ``sandboxed`` flags which path ran."""
+    if sandbox.available():
+        res = sandbox.run(repo, argv, timeout, net=net)
+    else:
+        res = mcp_tools.spawn_process(
+            str(repo), argv[0], argv[1:], timeout=timeout)
+        res["sandboxed"] = False
+    return res
+
+
 def _audit_command(
     manifests: list[str], repo: Path
 ) -> tuple[list[str], Path] | None:
@@ -923,8 +937,11 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
         return out
     cmd, cwd = sel
 
-    res = mcp_tools.spawn_process(
-        str(cwd), cmd[0], cmd[1:], timeout=config.AUDIT_PROCESS_TIMEOUT)
+    # FR-O28: inside the sandbox the audit gets egress (OSV API) while
+    # keeping the worktree read-only; host fallback needs the scanner
+    # installed locally.
+    res = _run_pr_command(
+        cwd, cmd, config.AUDIT_PROCESS_TIMEOUT, net=True)
     if res["pgid"] > 0:
         out["pgids"].append(res["pgid"])
     out["processes"].append({
@@ -1157,14 +1174,16 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
 
     selected = _qa_commands(repo, files)
     # FR-P12: executing validators are skipped when the deployment does
-    # not allow running PR-controlled code (service mode default).
+    # not allow running PR-controlled code — unless the FR-O28 sandbox
+    # is usable, where containment replaces the trust requirement.
+    sandboxed = sandbox.available()
     commands = [
         argv for argv, executes in selected
-        if not executes or config.EXEC_VALIDATORS
+        if not executes or config.EXEC_VALIDATORS or sandboxed
     ]
     skipped = [
         " ".join(argv) for argv, executes in selected
-        if executes and not config.EXEC_VALIDATORS
+        if executes and not (config.EXEC_VALIDATORS or sandboxed)
     ]
     if skipped:
         findings.append(_finding(
@@ -1178,24 +1197,14 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
                 "qa", "info", "No validators available",
                 "No validator toolchain detected for the changed files' "
                 "ecosystems; structural checks skipped."))
-        # FR-O16: the LLM pass still runs — validation-gap analysis does
-        # not depend on local validators being installed.
-        enrich = _llm_enrich("qa", QA_PROMPT, state,
-                      extra={"processes": proc_metrics})
-        return {
-            "findings": findings + enrich["findings"],
-            "active_pgids": pgids + enrich["active_pgids"],
-            "processes": proc_metrics,
-            "llm_calls": enrich["llm_calls"],
-        }
 
     failures = 0
     for cmd in commands:
-        # spawn_process starts a NEW process group; the pgid is registered
-        # unconditionally so the cleanup node can terminate stragglers.
-        res = mcp_tools.spawn_process(
-            str(repo), cmd[0], cmd[1:], timeout=config.QA_PROCESS_TIMEOUT
-        )
+        # Each run starts a NEW process group (or a named sandbox); the
+        # pgid is registered unconditionally so the cleanup node can
+        # terminate stragglers.
+        res = _run_pr_command(
+            repo, cmd, config.QA_PROCESS_TIMEOUT)
         if res["pgid"] > 0:
             pgids.append(res["pgid"])
         proc_metrics.append({
@@ -1223,11 +1232,19 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
                 f"`{' '.join(cmd)}` exited {res['exit_code']}: "
                 f"{output[0][:200] if output else 'no output'}"))
 
-    if not failures:
+    if commands and not failures:
         findings.append(_finding(
             "qa", "info", "Validation passed",
             f"{len(commands)} check(s) completed cleanly "
             f"({', '.join(c[0] for c in commands)})."))
+
+    # FR-O28 functional stage: build/test/smoke steps from the repo's
+    # quality-gate.yaml contract or ecosystem autodetect — inside the
+    # sandbox when usable, host fallback per FR-P12.
+    func = functional.run_functional(repo)
+    findings += func["findings"]
+    pgids += func["pgids"]
+    proc_metrics += func["processes"]
 
     # FR-O16: optional LLM pass with the qa role config; degrades to
     # info notes on any failure — never removes deterministic findings.

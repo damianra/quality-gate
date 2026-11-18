@@ -74,6 +74,9 @@ _SAFE_ENV_VARS = frozenset({
     "GOMODCACHE", "GOPROXY", "GOFLAGS", "NVM_DIR", "NODE_PATH",
     "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV",
     "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+    # Rootless container runtimes (podman/docker client) need the
+    # per-user runtime dir — it is a path, not a secret.
+    "XDG_RUNTIME_DIR",
 })
 
 

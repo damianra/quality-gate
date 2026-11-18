@@ -112,6 +112,8 @@ El comentario publicado siempre tiene esta forma:
 **Result:** <resumen>
 **Note:** <nota>
 
+**Validated in sandbox:** <paso → pass/fail/timeout>  # FR-O28, cuando corren pasos
+
 **Metrics:** <una línea>
 <details><summary>LLM telemetry</summary>   # tabla por modelo, si hubo llamadas
 
@@ -121,6 +123,36 @@ El comentario publicado siempre tiene esta forma:
 Idempotencia: las re-ejecuciones sobre el mismo head **actualizan** el
 comentario marcado existente; un PR está `pending` hasta que exista un
 marker que coincida con su `head:<sha7>`.
+
+## Validación en sandbox (FR-O28)
+
+Todo lo que ejecuta código controlado por el PR corre dentro de un
+contenedor `qg-*` en lugar del host — un mismo contrato de aislamiento
+sirve a los validadores de QA, la auditoría de dependencias y la etapa
+funcional:
+
+- **Etapa funcional.** Un `quality-gate.yaml` en la raíz del repo
+  declara pasos de build/test/smoke (`{steps: [{name, argv, timeout?,
+  required?, net?}]}`); sin contrato se autodetecta por ecosistema
+  (`pytest`/`npm test`/`go test`/`cargo test`). Un paso `required`
+  fallido es blocker; el resto son warnings — una rotura preexistente
+  nunca bloquea un merge. Los resultados aparecen en la línea
+  `Validated in sandbox` del veredicto.
+- **Contención.** `run --rm --init`, `--network none` por defecto
+  (egress solo para la auditoría, pasos `net: true` o
+  `QG_SANDBOX_ALLOW_NET`), rootfs y worktree de solo lectura (overlay
+  `:O` de podman / ro+tmpfs en docker), usuario no-root,
+  `no-new-privileges`, `--cap-drop ALL`, límites de memoria/CPU/pids y
+  env por whitelist — los secretos nunca entran al sandbox.
+- **Runtime.** `QG_SANDBOX=auto` usa podman/docker cuando la imagen
+  `qg-sandbox` está buildeada (`podman build -f Dockerfile.sandbox -t
+  qg-sandbox:local .`); si no, cae a spawns en host bajo la política
+  `QG_EXEC_VALIDATORS`. Dentro del sandbox los validadores que ejecutan
+  código (`go vet`, `cargo check`) siempre están permitidos — la
+  contención reemplaza el requisito de confianza.
+- **Limpieza.** Los sandboxes que agotan su timeout reciben un
+  `container kill` como segunda red y el nodo cleanup barre contenedores
+  `qg-*` residuales de corridas caídas.
 
 ## Variables de entorno
 
