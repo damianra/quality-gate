@@ -481,34 +481,44 @@ duration lands in `node_durations`.
   execution environment per run hosts *every* consumer that executes
   PR-controlled code — the same sandbox serves all of them: the QAAgent
   validators (FR-O5, including the executing validators gated by
-  `QG_EXEC_VALIDATORS` today — inside the sandbox they are allowed
+  `QG_EXEC_VALIDATORS` under FR-P12 — inside the sandbox they are allowed
   because containment replaces the trust requirement), the
   SecurityAgent dependency audit (FR-O24), the new **functional
   stage** (build/test/smoke, below) and the bounded agentic-exec seam
   `sandbox_exec`. `QG_SANDBOX` selects the runtime: `auto` (default)
   uses `podman` or `docker` when present and falls back to the host
   `spawn_process` path with an info finding; `0`/`off` keeps the
-  legacy host behavior; `1`/`podman`/`docker` pins a runtime and a
-  missing binary degrades to an info note, never a run failure.
+  legacy host behavior; `1` enables with runtime autodetect;
+  `podman`/`docker` pins a runtime — a missing binary in any enabled
+  mode degrades to an info note, never a run failure.
 
   Every sandboxed execution is argv-only (INV-1): either a short-lived
-  `container run --rm` per step, or `container exec` into a single
-  long-lived `qg-<run>` sandbox kept for the whole run — the
-  implementation may pick; the isolation contract is identical.
-  Contract per sandboxed command: `--network none` by default
-  (`QG_SANDBOX_ALLOW_NET` opts into egress for dependency-install
-  steps only), read-only rootfs, the worktree bind-mounted read-only
-  at `/src` plus a tmpfs scratch, a non-root user,
-  `no-new-privileges`, and `--memory`/`--cpus`/`--pids-limit` caps
-  (`QG_SANDBOX_MEMORY` default `2g`, `QG_SANDBOX_CPUS` default `2`,
-  `QG_SANDBOX_PIDS` default `256`). The in-container env is a
-  whitelist (PATH/HOME/locale only) — `GITHUB_TOKEN`, `DATABASE_URL`,
-  LLM keys and every `*_API_KEY`/`*_SECRET`/`*_TOKEN` never enter the
-  sandbox; the host-side container client itself spawns under
-  `scrub_env` like any other validator (FR-P11). The client process
-  group registers in `active_pgids`; on timeout the group is killed
-  *and* `container kill` is issued on the named sandbox as a second
-  net. The cleanup node additionally removes stale `qg-*` containers
+  `container run --rm --name qg-<run>-<seq>` per step, or
+  `container exec` into a single long-lived `qg-<run>` sandbox kept
+  for the whole run — the implementation may pick; every sandbox is
+  named `qg-*` so the kill second-net and stale sweep below apply
+  uniformly, and the isolation contract is identical either way.
+  Contract per sandboxed command: `--network none` by default —
+  egress is opt-in per consumer: the FR-O24 dependency audit needs
+  OSV API access, contract steps may declare `net: true`, and
+  `QG_SANDBOX_ALLOW_NET` grants egress globally (e.g. for
+  dependency-install steps). Read-only rootfs, the worktree
+  bind-mounted read-only at `/src`, plus a per-run writable scratch
+  mount covering toolchain caches and build artifacts (`.venv`,
+  `node_modules`, `target/`, `GOMODCACHE`… — functional steps need
+  writable paths even though the worktree stays read-only). Non-root
+  user, `no-new-privileges`, and `--memory`/`--cpus`/`--pids-limit`
+  caps (`QG_SANDBOX_MEMORY` default `2g`, `QG_SANDBOX_CPUS` default
+  `2`, `QG_SANDBOX_PIDS` default `256`). The in-container env is a
+  whitelist — PATH/HOME/locale plus tool variables matched by
+  `QG_SANDBOX_ENV_ALLOW` prefixes (default
+  `UV_*,CARGO_*,GO*,NPM_CONFIG_*,CI`) — `GITHUB_TOKEN`,
+  `DATABASE_URL`, LLM keys and every `*_API_KEY`/`*_SECRET`/`*_TOKEN`
+  never enter the sandbox; the host-side container client itself
+  spawns under `scrub_env` like any other validator (FR-P11). The
+  client process group registers in `active_pgids`; on timeout the
+  group is killed *and* `container kill` is issued on the named
+  sandbox as a second net. The cleanup node additionally removes stale `qg-*` containers
   left by crashed runs — INV-2 extension: containers are cleaned like
   pgids and worktree dirs. The image is `qg-sandbox`
   (`QG_SANDBOX_IMAGE`), an OCI image built from the repo root with the
@@ -518,8 +528,8 @@ duration lands in `node_durations`.
   The **functional stage** runs inside the sandbox after structural
   validators, when a step contract is resolvable. The contract is
   `quality-gate.yaml` at the worktree root:
-  `{steps: [{name, argv, timeout?, required?}]}` — a repo declares its
-  own build/test/smoke commands. With no contract file the stage
+  `{steps: [{name, argv, timeout?, required?, net?}]}` — a repo
+  declares its own build/test/smoke commands. With no contract file the stage
   autodetects per ecosystem (same detector pattern as
   `_qa_commands`): `uv run pytest` for `pyproject.toml`, `npm test`
   for `package.json`, `go test ./...` for `go.mod`, `cargo test` for
@@ -531,8 +541,8 @@ duration lands in `node_durations`.
   warning, an absent contract + no detected ecosystem is an info note
   (degrades like FR-O24's audit absence). Step results join the
   `processes` metrics (command, duration, exit code) and are cited in
-  the verdict comment, which gains a `validated in sandbox` line
-  naming the steps that ran.
+  the verdict comment via the conditional `Validated in sandbox`
+  line added to §6.1.
 
   `sandbox_exec` is the agentic seam over the same environment: a
   bounded helper nodes may call to run extra evidence-gathering
@@ -580,6 +590,10 @@ duration lands in `node_durations`.
 
 **Result:** <summary>
 **Note:** <note>
+
+**Validated in sandbox:** <step name → pass/fail/timeout, …>
+  # conditional (FR-O28): rendered only when the functional stage
+  # executed at least one step inside the sandbox
 
 **Metrics:** <total_s; slowest node; LLM calls/tokens incl. per-model
              split; processes>
@@ -645,7 +659,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28) |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28) |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
