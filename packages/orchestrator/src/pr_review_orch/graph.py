@@ -18,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 
 from quality_gate_mcp import git_ops, tools as mcp_tools
 
-from . import agents, cleanup, config, logs, metrics, scope
+from . import agents, cleanup, config, logs, metrics, sandbox, scope
 from .state import PRReviewState
 
 logger = logging.getLogger("pr-review-orch")
@@ -177,12 +177,26 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     if state.get("dry_run"):
         update["posted"] = {"action": "dry_run", "url": "", "head_sha": state.get("head_sha", "")[:7]}
     else:
+        # FR-O28: the conditional "Validated in sandbox" line — rendered
+        # only when functional steps actually ran inside the sandbox.
+        func_steps = [
+            p for p in metrics._attempt_entries(state, "processes")
+            if p.get("agent") == "functional" and p.get("sandboxed")
+        ]
+        validated_line = ", ".join(
+            f"{p.get('name', 'step')} → "
+            + ("timeout" if p.get("timed_out")
+               else "pass" if p.get("exit_code") == 0
+               else f"fail (exit {p.get('exit_code')})")
+            for p in func_steps
+        )
         posted = mcp_tools.post_verdict(
             state["repo_path"], state["pr_number"], approve, checks,
             result=summary,
             note=f"PR #{state['pr_number']} reviewed automatically by quality-gate.",
             metrics_line=metrics.summary_line(report),
             metrics_detail=metrics.detail_block(report),
+            validated_line=validated_line,
         )
         update["posted"] = posted
     return update
@@ -191,6 +205,9 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
 def cleanup_node(state: PRReviewState) -> dict[str, Any]:
     """MANDATORY terminal node: kill every registered process group."""
     report = cleanup.terminate_pgids(state.get("active_pgids", []))
+    # FR-O28/INV-2 extension: stale qg-* sandboxes from crashed runs are
+    # swept like worktree dirs — non-running containers only.
+    report["sandbox_containers"] = sandbox.sweep()
     logger.info("cleanup report: %s", report)
     return {"cleanup_report": report}
 

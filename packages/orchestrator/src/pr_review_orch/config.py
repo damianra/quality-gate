@@ -67,6 +67,43 @@ CHECKLIST_MAX_ITEMS = int(os.environ.get("QG_CHECKLIST_MAX_ITEMS", "12"))
 DEP_AUDIT_ENABLED = os.environ.get("QG_DEP_AUDIT", "1") not in ("0", "false", "")
 AUDIT_PROCESS_TIMEOUT = int(os.environ.get("QG_AUDIT_PROCESS_TIMEOUT", "120"))
 
+# --- FR-O28 sandboxed execution + functional validation ----------------- #
+
+#: Sandbox runtime selection: ``auto`` (default) uses podman or docker
+#: when present and falls back to host ``spawn_process``; ``0``/``off``
+#: keeps legacy host behavior; ``1`` enables with autodetect;
+#: ``podman``/``docker`` pins a runtime.
+SANDBOX_MODE = os.environ.get("QG_SANDBOX", "auto").lower()
+#: OCI image hosting the validation toolchains; missing image degrades
+#: to an info note, never a run failure.
+SANDBOX_IMAGE = os.environ.get("QG_SANDBOX_IMAGE", "qg-sandbox:local")
+#: Global egress opt-in for sandboxed commands (dependency installs).
+SANDBOX_ALLOW_NET = os.environ.get(
+    "QG_SANDBOX_ALLOW_NET", "0").lower() in ("1", "true", "yes")
+SANDBOX_MEMORY = os.environ.get("QG_SANDBOX_MEMORY", "2g")
+SANDBOX_CPUS = os.environ.get("QG_SANDBOX_CPUS", "2")
+SANDBOX_PIDS = os.environ.get("QG_SANDBOX_PIDS", "256")
+#: Env-var name prefixes allowed inside the container (tool variables
+#: for redirected caches/environments).
+SANDBOX_ENV_ALLOW = tuple(
+    p.strip() for p in os.environ.get(
+        "QG_SANDBOX_ENV_ALLOW", "UV_*,CARGO_*,GO*,NPM_CONFIG_*,CI"
+    ).split(",") if p.strip()
+)
+#: Bounded agentic seam: max sandbox_exec calls per run and the argv
+#: allowlist (basenames).
+SANDBOX_EXEC_MAX_CALLS = int(os.environ.get("QG_SANDBOX_EXEC_MAX_CALLS", "10"))
+SANDBOX_EXEC_ALLOW = frozenset(
+    e.strip() for e in os.environ.get(
+        "QG_SANDBOX_EXEC_ALLOW",
+        "pytest,python,node,npm,ruff,go,cargo,rg,git").split(",")
+    if e.strip()
+)
+#: Functional stage: per-step timeout and max steps (contract or
+#: autodetected).
+FUNC_TIMEOUT = int(os.environ.get("QG_FUNC_TIMEOUT", "300"))
+FUNC_MAX_STEPS = int(os.environ.get("QG_FUNC_MAX_STEPS", "3"))
+
 # --- Service mode (FR-O19..O22): webhook ingress + ephemeral fetch ------- #
 
 #: HMAC secret for X-Hub-Signature-256 verification. REQUIRED in service

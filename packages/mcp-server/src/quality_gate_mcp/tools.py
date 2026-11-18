@@ -43,13 +43,15 @@ def build_verdict_comment(
     head_sha: str,
     metrics_line: str = "",
     metrics_detail: str = "",
+    validated_line: str = "",
 ) -> str:
     """Build the contractual verdict comment body.
 
     Format (non-negotiable, English per FR-T1):
       ``## Functional validation`` heading, a verdict line, one bullet per
-      check, Result/Note lines, the Metrics one-liner, an optional
-      collapsible telemetry block (``metrics_detail``), and the
+      check, Result/Note lines, the conditional FR-O28 ``Validated in
+      sandbox`` line (``validated_line``), the Metrics one-liner, an
+      optional collapsible telemetry block (``metrics_detail``), and the
       ``<!-- pr-review head:<sha7> -->`` idempotency marker.
     """
     icon = "✅" if approve else "❌"
@@ -70,6 +72,8 @@ def build_verdict_comment(
         lines += ["", f"**Result:** {result}"]
     if note:
         lines.append(f"**Note:** {note}")
+    if validated_line:
+        lines += ["", f"**Validated in sandbox:** {validated_line}"]
     if metrics_line:
         lines += ["", f"**Metrics:** {metrics_line}"]
     if metrics_detail:
@@ -689,6 +693,7 @@ def post_verdict(
     note: str = "",
     metrics_line: str = "",
     metrics_detail: str = "",
+    validated_line: str = "",
 ) -> dict[str, Any]:
     """Post (or update) the contractual verdict comment on the PR.
 
@@ -704,6 +709,7 @@ def post_verdict(
         body = build_verdict_comment(
             approve, checks, result, note, head_sha,
             metrics_line=metrics_line, metrics_detail=metrics_detail,
+            validated_line=validated_line,
         )
         comments = gh.list_issue_comments(slug, pr_number)
         existing = find_verdict_comment(comments)

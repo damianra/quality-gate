@@ -889,6 +889,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyyaml" },
     { name = "quality-gate-mcp" },
     { name = "uvicorn" },
 ]
@@ -901,6 +902,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "quality-gate-mcp", editable = "packages/mcp-server" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]

@@ -1,0 +1,11 @@
+# FR-O28 functional-validation contract — quality-gate dogfoods its own
+# sandboxed stage. Steps run inside the qg-* sandbox when available.
+steps:
+  - name: unit-tests
+    argv: [uv, run, --all-packages, pytest, packages, -q]
+    timeout: 300
+    required: true
+    # uv resolves/builds the workspace venv inside the sandbox overlay —
+    # it needs registry egress on first run. Honored only when the
+    # operator sets QG_SANDBOX_ALLOW_NET=1.
+    net: true

@@ -109,6 +109,8 @@ The published comment is always:
 **Result:** <summary>
 **Note:** <note>
 
+**Validated in sandbox:** <step → pass/fail/timeout>  # FR-O28, steps that ran in-sandbox
+
 **Metrics:** <one-liner>
 <details><summary>LLM telemetry</summary>   # per-model table, when calls ran
 
@@ -117,6 +119,36 @@ The published comment is always:
 
 Idempotency: re-runs on the same head **update** the existing marked
 comment; a PR is `pending` until a marker matching its `head:<sha7>` exists.
+
+## Sandboxed validation (FR-O28)
+
+Everything that executes PR-controlled code runs inside a named `qg-*`
+container instead of on the host — one isolation contract serves the QA
+validators, the dependency audit and the functional stage:
+
+- **Functional stage.** A `quality-gate.yaml` at the repo root declares
+  build/test/smoke steps (`{steps: [{name, argv, timeout?, required?,
+  net?}]}`); with no contract the stage autodetects per ecosystem
+  (`pytest`/`npm test`/`go test`/`cargo test`). A failing `required`
+  step is a blocker; other failures warn — pre-existing breakage never
+  hard-blocks a merge. Step results appear in the verdict's
+  `Validated in sandbox` line.
+- **Containment.** `run --rm --init`, `--network none` by default —
+  egress goes only to the dependency audit and to steps when the
+  operator opts in globally (`QG_SANDBOX_ALLOW_NET` honors `net: true`
+  declarations, so a PR can't grant itself network), read-only rootfs
+  + worktree (podman `:O`
+  overlay / docker ro+tmpfs), non-root user, `no-new-privileges`,
+  `--cap-drop ALL`, memory/cpu/pids caps and a whitelisted env —
+  secrets never enter the sandbox.
+- **Runtime.** `QG_SANDBOX=auto` uses podman/docker when the
+  `qg-sandbox` image is built (`podman build -f Dockerfile.sandbox -t
+  qg-sandbox:local .`); otherwise it falls back to host spawns under
+  the `QG_EXEC_VALIDATORS` policy. Inside the sandbox, executing
+  validators (`go vet`, `cargo check`) are always allowed —
+  containment replaces the trust requirement.
+- **Cleanup.** Timed-out sandboxes get a `container kill` second net
+  and the cleanup node sweeps stale `qg-*` containers left by crashes.
 
 ## Environment variables
 
