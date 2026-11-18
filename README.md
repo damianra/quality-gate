@@ -8,6 +8,9 @@ churn, scope drift, prompt-injection attempts), runs structural
 validation with the best available toolchain for the ecosystem, and
 posts a contractual verdict comment on GitHub.
 
+New here? Start with the [non-technical overview](PROJECT_OVERVIEW.md)
+(also available [in Spanish](PROJECT_OVERVIEW_ES.md)).
+
 ## Architecture
 
 Two independently-versioned packages in one `uv` workspace:

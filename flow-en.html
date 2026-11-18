@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  body { margin: 0; background: #0d1117; display: flex; justify-content: center; }
+  text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .stage { fill: #161b22; stroke-width: 2; }
+  .title { fill: #e6edf3; font-size: 21px; font-weight: 700; }
+  .desc  { fill: #9198a1; font-size: 14.5px; }
+  .big   { fill: #e6edf3; font-size: 34px; font-weight: 800; }
+  .sub   { fill: #9198a1; font-size: 17px; }
+  .tag   { font-size: 13px; font-weight: 700; }
+  .arrow { stroke: #58a6ff; stroke-width: 2.5; fill: none; marker-end: url(#h); }
+  .arrowG{ stroke: #3fb950; stroke-width: 2.5; fill: none; marker-end: url(#g); }
+</style></head>
+<body>
+<svg width="1240" height="700" viewBox="0 0 1240 700">
+  <defs>
+    <marker id="h" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#58a6ff"/>
+    </marker>
+    <marker id="g" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="620" y="58" text-anchor="middle" class="big">quality-gate</text>
+  <text x="620" y="88" text-anchor="middle" class="sub">Autonomous Pull Request review — from webhook to verdict</text>
+
+  <!-- Stage 1: PR -->
+  <rect x="40" y="140" width="190" height="150" rx="14" class="stage" stroke="#58a6ff"/>
+  <text x="135" y="178" text-anchor="middle" class="tag" fill="#58a6ff">TRIGGER</text>
+  <text x="135" y="212" text-anchor="middle" class="title">Pull Request</text>
+  <text x="135" y="240" text-anchor="middle" class="desc">opened or</text>
+  <text x="135" y="260" text-anchor="middle" class="desc">updated on GitHub</text>
+
+  <!-- Stage 2: Webhook -->
+  <rect x="290" y="140" width="190" height="150" rx="14" class="stage" stroke="#58a6ff"/>
+  <text x="385" y="178" text-anchor="middle" class="tag" fill="#58a6ff">INPUT</text>
+  <text x="385" y="212" text-anchor="middle" class="title">Webhook</text>
+  <text x="385" y="240" text-anchor="middle" class="desc">signature-verified</text>
+  <text x="385" y="260" text-anchor="middle" class="desc">+ durable queue</text>
+
+  <!-- Stage 3: Clone -->
+  <rect x="540" y="140" width="190" height="150" rx="14" class="stage" stroke="#58a6ff"/>
+  <text x="635" y="178" text-anchor="middle" class="tag" fill="#58a6ff">ISOLATION</text>
+  <text x="635" y="212" text-anchor="middle" class="title">Ephemeral clone</text>
+  <text x="635" y="240" text-anchor="middle" class="desc">temporary workspace,</text>
+  <text x="635" y="260" text-anchor="middle" class="desc">discarded when done</text>
+
+  <!-- Stage 4: Analysis (two lanes) -->
+  <rect x="790" y="120" width="410" height="96" rx="14" class="stage" stroke="#d2a8ff"/>
+  <text x="995" y="152" text-anchor="middle" class="tag" fill="#d2a8ff">AI SPECIALISTS</text>
+  <text x="995" y="180" text-anchor="middle" class="title">Reviewer · Security · QA</text>
+  <text x="995" y="203" text-anchor="middle" class="desc">isolated sessions, per-role configurable models</text>
+
+  <rect x="790" y="232" width="410" height="96" rx="14" class="stage" stroke="#f0883e"/>
+  <text x="995" y="264" text-anchor="middle" class="tag" fill="#f0883e">DETERMINISTIC CHECKS</text>
+  <text x="995" y="292" text-anchor="middle" class="title">Scanners + validation</text>
+  <text x="995" y="315" text-anchor="middle" class="desc">secrets, patterns, dependencies, tests</text>
+
+  <!-- Stage 5: Verdict -->
+  <rect x="290" y="392" width="440" height="130" rx="14" class="stage" stroke="#3fb950"/>
+  <text x="510" y="430" text-anchor="middle" class="tag" fill="#3fb950">SYNTHESIS</text>
+  <text x="510" y="464" text-anchor="middle" class="title">Single verdict</text>
+  <text x="510" y="492" text-anchor="middle" class="desc">deduplicated findings scored</text>
+  <text x="510" y="512" text-anchor="middle" class="desc">by severity — never blocks on false positives</text>
+
+  <!-- Stage 6: Publication -->
+  <rect x="790" y="392" width="410" height="130" rx="14" class="stage" stroke="#3fb950"/>
+  <text x="995" y="430" text-anchor="middle" class="tag" fill="#3fb950">RESULT ON THE PR</text>
+  <text x="995" y="464" text-anchor="middle" class="title">Comment + Status + Approval</text>
+  <text x="995" y="492" text-anchor="middle" class="desc">actionable evidence for the team,</text>
+  <text x="995" y="512" text-anchor="middle" class="desc">ready to merge or iterate</text>
+
+  <!-- Footer band -->
+  <rect x="40" y="580" width="1160" height="76" rx="14" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+  <text x="90" y="612" class="tag" fill="#79c0ff">TELEMETRY</text>
+  <text x="90" y="638" class="desc">tokens, tok/s, VRAM and per-model latency, persisted to Postgres</text>
+  <text x="640" y="612" class="tag" fill="#79c0ff">FULL CLEANUP</text>
+  <text x="640" y="638" class="desc">workspace and processes removed — nothing left running</text>
+
+  <!-- Arrows row 1 -->
+  <path class="arrow" d="M230 215 H284"/>
+  <path class="arrow" d="M480 215 H534"/>
+  <path class="arrow" d="M730 168 H784"/>
+  <path class="arrow" d="M730 262 H784"/>
+
+  <!-- Merge into synthesis: both analysis lanes converge -->
+  <path class="arrowG" d="M850 216 C850 250 800 258 770 258 C745 260 745 295 745 330 C745 362 725 380 692 389"/>
+  <path class="arrowG" d="M850 328 C850 350 815 358 778 358 C745 360 745 376 712 391"/>
+
+  <!-- Synthesis -> publication -->
+  <path class="arrowG" d="M730 457 H784"/>
+
+  <!-- Feedback hint: PR box to verdict -->
+  <text x="135" y="330" text-anchor="middle" class="desc" fill="#6e7681">minutes later…</text>
+  <path d="M135 290 V310" stroke="#30363d" stroke-width="2" stroke-dasharray="4 4"/>
+
+</svg>
+</body>
+</html>
