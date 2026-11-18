@@ -8,6 +8,10 @@ de prompt-injection), corre validación estructural con la mejor
 toolchain disponible para el ecosistema y publica un comentario
 contractual con el veredicto en GitHub.
 
+¿Primera vez por aquí? Empezá por la
+[descripción general no técnica](PROJECT_OVERVIEW_ES.md)
+(también disponible [en inglés](PROJECT_OVERVIEW.md)).
+
 ## Arquitectura
 
 Dos paquetes versionados de forma independiente en un workspace de `uv`:
