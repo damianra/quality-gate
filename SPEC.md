@@ -523,7 +523,8 @@ duration lands in `node_durations`.
   left by crashed runs — INV-2 extension: containers are cleaned like
   pgids and worktree dirs. The image is `qg-sandbox`
   (`QG_SANDBOX_IMAGE`), an OCI image built from the repo root with the
-  validation toolchains preinstalled (python+uv, node, osv-scanner);
+  validation toolchains preinstalled (python+uv, node, osv-scanner;
+  FR-O29 adds semgrep, gitleaks and trivy plus the vendored ruleset);
   a missing image degrades to an info note, never blocks the run.
 
   The **functional stage** runs inside the sandbox after structural
@@ -580,9 +581,9 @@ duration lands in `node_durations`.
     (`_TEST_PATH_RE`); the detail shows a redacted prefix +
     rule id, never the matched secret text.
   - **IaC — trivy config**: triggered when the diff touches the IaC
-    surface (`Dockerfile*`, `compose*.yaml`, `.github/workflows/*`,
-    `deploy/*`, `*.tf`, `*.yaml` under deploy paths) — the same
-    surface as the sensitive-config watchlist; `trivy config
+    subset of the sensitive-config watchlist (`Dockerfile*`,
+    `docker-compose*.y*ml`, `compose.y*ml`, `.github/workflows/*`)
+    extended with `deploy/*` and `*.tf`; `trivy config
     --format json` uses the built-in defsec policies (offline, no
     vuln DB needed). `CRITICAL`/`HIGH`→warning, the rest→info.
 
