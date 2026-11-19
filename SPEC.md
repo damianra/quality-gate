@@ -567,12 +567,15 @@ duration lands in `node_durations`.
   it, emits at most `QG_SEC_MAX_FINDINGS` findings (default 10), and
   is bounded by `QG_SEC_TOOL_TIMEOUT` (default 120 s).
   - **SAST — semgrep**: triggered when the diff adds code files;
-    `semgrep scan --config /opt/qg-rules --json --metrics off` over
-    the changed code files (capped list). The ruleset is vendored at
-    `/opt/qg-rules` in the image — no registry egress needed.
-    Findings map `ERROR`→warning, `WARNING`/`INFO`→info (SAST false
-    positives must not hard-block), each carrying check_id, file,
-    line and a truncated message.
+    `semgrep scan --config /opt/qg-rules --json --metrics off
+    --disable-nosem --no-git-ignore` over the changed code files
+    (capped list). The ruleset is vendored at `/opt/qg-rules` in the
+    image — no registry egress needed; `--disable-nosem` keeps
+    inline `# nosem` directives from muting hits (adding one still
+    warns, below). Findings map `ERROR`→warning,
+    `WARNING`/`INFO`→info (SAST false positives must not
+    hard-block), each carrying check_id, file, line and a truncated
+    message.
   - **Secrets — gitleaks**: `gitleaks dir` over the changed files;
     only findings on lines the PR *adds* are kept (added-line ranges
     parsed from the unified diff) — pre-existing secrets in
@@ -587,11 +590,82 @@ duration lands in `node_durations`.
     --format json` uses the built-in defsec policies (offline, no
     vuln DB needed). `CRITICAL`/`HIGH`→warning, the rest→info.
 
+  The stage also warns whenever the PR *adds or modifies* a
+  suppression surface: any filename the tools honor under
+  unpinned defaults (`.gitleaksignore`, `.gitleaks.toml`,
+  `.semgrepignore`, `.trivyignore`, `.trivyignore.yaml`,
+  `trivy.yaml`, `.gitignore`, `.ignore`) and inline directives
+  (`nosem`, `gitleaks:allow`, `trivy:ignore:`, `tfsec:ignore`,
+  `checkov:skip`) — each is a warning, since the PR controls its
+  own tree.
+
   Scanner output is untrusted data (FR-O25) and feeds findings
   additively. These tools are *evidence generators*: they extend what
   is provably wrong to what is provably suspicious; the LLM pass may
   contextualize or escalate a tool finding with cited evidence
   (FR-O27) but can never remove or downgrade it.
+- **FR-O30 Scanner hardening + efficiency.** FR-O29 warned when a PR
+  *adds* suppression files, but every vendored scanner also honors
+  ignore/config files already present in the base tree — a
+  pre-existing `.gitleaksignore`, `.trivyignore`, `.gitleaks.toml`,
+  `trivy.yaml` or inline `gitleaks:allow`/`trivy:ignore:` directive
+  mutes findings silently. The toolchain therefore pins every
+  repo-controlled input the tools would otherwise auto-load, and
+  bounds the stage's wall-clock cost:
+  - **Config pinning** (each mechanism verified against the pinned
+    binaries): gitleaks resolves `.gitleaksignore` against its
+    *working directory* — not the scan target — so it is spawned
+    with cwd outside the worktree and the repo path as an absolute
+    target (the FR-O28 runner gains an optional `workdir` knob).
+    `--gitleaks-ignore-path` is NOT passed — it is additive, and
+    pointing it at the repo's file would re-enable the suppression.
+    It also
+    runs with `--ignore-gitleaks-allow` (inline allows disabled)
+    and `-c` a vendored config that `[extend]`s the embedded
+    default rules — a repo `.gitleaks.toml` is auto-loaded over
+    the defaults, so pinning `-c` blocks a ruleset swap. Trivy
+    resolves `trivy.yaml` against its working directory too —
+    the `-c` flag does NOT reliably override it (verified: the
+    repo config still applies under `-c /dev/null`) — so the
+    same outside-cwd spawn neutralizes it, and `--ignorefile ""`
+    disables both `.trivyignore` and `.trivyignore.yaml` (both
+    verified to suppress config findings when auto-loaded).
+    Semgrep needs nothing further: explicit file targets already
+    bypass `.semgrepignore`, and `--no-git-ignore` covers
+    directory-level filters.
+  - **Suppression counter-scan**: one deterministic pass over the
+    worktree enumerates active inline suppression directives
+    (`nosem`, `gitleaks:allow`, `trivy:ignore:`, `tfsec:ignore`,
+    `checkov:skip`) and pre-existing scanner ignore/config files —
+    emitted as info findings so muted coverage is always visible,
+    regardless of whether the PR introduced it. Deduplication
+    against the FR-O29 warnings is explicit: ignore files are
+    dropped when their path is in the PR's changed-file set, and
+    inline directives are dropped when they land on a parsed
+    added-line range. The content half is
+    `rg --hidden --no-ignore` (default rg skips dotfiles and honors
+    `.gitignore`/`*.ignore` — exactly the files this scan exists to
+    find) and the ignore-file half is a plain directory walk /
+    `rg --files --hidden --no-ignore`, since a content search cannot
+    find an ignore file that contains no directive text.
+  - **Target hygiene**: symlinks are excluded from scan targets
+    via an explicit `is_symlink()` check (`is_file()` follows
+    them); gitleaks' raw JSON stdout — the only place matched
+    secret text exists — is scrubbed right after parsing.
+  - **Efficiency**: trivy runs as a single `trivy config
+    <repo-abs-path>` spawn (absolute target, matching the
+    outside-cwd requirement) whose `Results[].Target`s are
+    post-filtered to the changed IaC
+    set — one container spawn instead of one per file, so trivy's
+    own worst case is one `QG_SEC_TOOL_TIMEOUT` rather than one
+    per target. Independently, the enabled scanners execute
+    concurrently with deterministic output merge, which is what
+    bounds the stage's wall time to ≈ the slowest tool rather than
+    the sum. Semgrep runs with
+    `--jobs` bounded to the sandbox CPU grant. Diff-aware
+    `semgrep --baseline-commit` (new-findings-only) is the reserved
+    next step — it needs the worktree's `.git` metadata and a
+    merge-base fallback.
 
 ## 5. Non-functional requirements
 
@@ -833,6 +907,8 @@ volatile during early history edits; commits are identified by subject):
 | 85 | `feat(orchestrator)`: FR-O28 sandboxed execution + functional stage |
 | 86 | `docs`: FR-O29 security scanning toolchain |
 | 87 | `feat(orchestrator)`: FR-O29 semgrep/gitleaks/trivy in sandbox |
+| 88 | `docs`: FR-O30 scanner hardening + efficiency |
+| 89 | `feat(orchestrator)`: FR-O30 scanner config pinning, counter-scan, single-spawn trivy + parallel stage |
 
 ## 11. Extension points (SDD backlog)
 
