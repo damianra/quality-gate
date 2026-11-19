@@ -157,6 +157,10 @@ validators, the dependency audit and the functional stage:
   cap via `QG_SEC_TOOLS`/`QG_SEC_TOOL_TIMEOUT`/`QG_SEC_MAX_FINDINGS`;
   missing tools degrade to info notes. Scanner-suppression files or
   `nosem`/`tfsec:ignore`-style directives added by the PR warn.
+  FR-O30 pins every repo-controlled input — gitleaks/trivy spawn with
+  cwd outside the tree (repo `.gitleaksignore`/`trivy.yaml` never
+  load), a counter-scan enumerates live suppression surfaces as info,
+  and the three tools run concurrently.
 
 ## Environment variables
 

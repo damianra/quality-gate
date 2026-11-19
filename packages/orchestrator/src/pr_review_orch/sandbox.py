@@ -158,7 +158,8 @@ def _mount_args(rt: str, repo: Path) -> list[str]:
 
 
 def container_argv(repo: Path, argv: list[str], *, name: str,
-                   net: bool, rt: str) -> list[str]:
+                   net: bool, rt: str,
+                   workdir: str = "/src") -> list[str]:
     """Full ``container run`` argv implementing the FR-O28 contract."""
     args = [
         rt, "run", "--rm",
@@ -176,7 +177,7 @@ def container_argv(repo: Path, argv: list[str], *, name: str,
     ]
     for k, v in _RO_REDIRECTS.items():
         args += ["--env", f"{k}={v}"]
-    args += ["-w", "/src", config.SANDBOX_IMAGE, *argv]
+    args += ["-w", workdir, config.SANDBOX_IMAGE, *argv]
     return args
 
 
@@ -189,8 +190,13 @@ def _kill_container(rt: str, name: str) -> None:
 
 
 def run(repo: Path | str, argv: list[str], timeout: int | None = None,
-        *, net: bool = False) -> dict[str, Any]:
+        *, net: bool = False, workdir: str = "/src") -> dict[str, Any]:
     """Run ``argv`` inside the sandbox over ``repo``.
+
+    ``workdir`` is the in-container cwd; callers pass an outside-tree
+    dir (``/tmp``) when a tool resolves config/ignore files against its
+    cwd — a repo-controlled file must never be the effective default
+    (FR-O30).
 
     Returns the ``spawn_process`` dict plus ``sandboxed``/``container``
     keys. The host-side client process group is pgid-tracked as usual;
@@ -202,7 +208,8 @@ def run(repo: Path | str, argv: list[str], timeout: int | None = None,
         raise RuntimeError("sandbox.run called with no runtime available")
     repo = Path(repo)
     name = f"qg-{os.getpid()}-{next(_seq)}"
-    cargv = container_argv(repo, argv, name=name, net=net, rt=rt)
+    cargv = container_argv(repo, argv, name=name, net=net, rt=rt,
+                           workdir=workdir)
     res = git_ops.spawn_tracked(
         str(repo), cargv[0], cargv[1:], timeout=timeout,
         env=_client_env(_env_spec()))

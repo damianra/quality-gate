@@ -1,7 +1,8 @@
 """FR-O29 security scanning toolchain — trigger gating, defensive JSON
 parsing, severity mapping, added-line filtering, redaction, finding
-caps and degrade paths. The runner is injected so no real process is
-ever spawned.
+caps and degrade paths. FR-O30: config pinning, suppression
+counter-scan, single-spawn trivy and concurrent execution. The runner
+is injected so no real process is ever spawned.
 """
 
 from __future__ import annotations
@@ -22,9 +23,11 @@ def _runner(*responses):
     """Dispatch canned results by argv[0]; each response is a dict
     {"tool": name, "res": result} or {"_argv": fn, "res": result}."""
     calls = []
+    outsides = []
 
-    def run(repo, argv, timeout):
+    def run(repo, argv, timeout, *, outside=False):
         calls.append(list(argv))
+        outsides.append(outside)
         tool = argv[0]
         for i, spec in enumerate(responses):
             match = spec.get("_argv") if isinstance(spec, dict) else None
@@ -34,6 +37,7 @@ def _runner(*responses):
                 return spec["res"] if isinstance(spec, dict) else spec(argv)
         return _res(exit_code=127, stderr=f"{tool}: command not found")
     run.calls = calls
+    run.outsides = outsides
     return run
 
 
@@ -116,7 +120,7 @@ def test_triggers_only_with_matching_files(tmp_path):
     _touch(tmp_path, "app.py", "Dockerfile", "readme.md")
     calls = []
 
-    def run(repo, argv, timeout):
+    def run(repo, argv, timeout, *, outside=False):
         calls.append(argv[0])
         return _res(stdout="{}" if argv[0] == "semgrep" else "[]")
     sectools.run_security_tools(
@@ -238,26 +242,63 @@ def test_gitleaks_test_path_downgrades(tmp_path):
     assert "test file" in hits[0]["title"]
 
 
-def test_trivy_severity_and_per_file(tmp_path):
+def test_trivy_single_spawn_target_filter(tmp_path):
+    # FR-O30: one trivy spawn over the repo root; Results[].Target
+    # post-filtered to the changed IaC set. Findings on other files are
+    # pre-existing noise and dropped.
     _touch(tmp_path, "Dockerfile", "deploy/app.yaml", "src/a.py")
     calls = []
-    doc = {"Results": [{"Target": "x", "Misconfigurations": [
-        {"ID": "DS001", "Severity": "HIGH", "Title": "root user",
-         "CauseMetadata": {"StartLine": 3}},
-        {"ID": "DS099", "Severity": "LOW", "Title": "minor"},
-    ]}]}
+    doc = {"Results": [
+        {"Target": "Dockerfile", "Misconfigurations": [
+            {"ID": "DS001", "Severity": "HIGH", "Title": "root user",
+             "CauseMetadata": {"StartLine": 3}},
+            {"ID": "DS099", "Severity": "LOW", "Title": "minor"},
+        ]},
+        {"Target": "other/base.tf", "Misconfigurations": [
+            {"ID": "DS777", "Severity": "CRITICAL", "Title": "not ours"},
+        ]},
+    ]}
 
-    def run(repo, argv, timeout):
+    def run(repo, argv, timeout, *, outside=False):
         if argv[0] == "trivy":
-            calls.append(argv[-1])
+            calls.append(argv)
             return _res(json.dumps(doc))
         return _res("{}" if argv[0] == "semgrep" else "[]")
     out = sectools.run_security_tools(
         tmp_path, ["Dockerfile", "deploy/app.yaml", "src/a.py"], DIFF, run)
-    assert set(calls) == {"./Dockerfile", "./deploy/app.yaml"}
+    assert len(calls) == 1
+    argv = calls[0]
+    assert "--ignorefile" in argv and "" in argv
+    assert argv[-1] == sectools._repo_target(tmp_path)
     tv = [f for f in out["findings"] if f["title"].startswith("trivy:")]
+    assert {f["title"] for f in tv} == {"trivy:DS001", "trivy:DS099"}
+    assert all(f["file"] == "Dockerfile" for f in tv)
     assert any(f["severity"] == "warning" for f in tv)
     assert any(f["severity"] == "info" for f in tv)
+
+
+def test_scanners_pinned_against_repo_configs(tmp_path):
+    # FR-O30 config pinning: gitleaks/trivy spawn outside the worktree
+    # (cwd-resolved .gitleaksignore/trivy.yaml never load); gitleaks
+    # gets --ignore-gitleaks-allow + vendored -c; semgrep gets
+    # --no-git-ignore + --jobs.
+    _touch(tmp_path, "Dockerfile", "app.py")
+    run = _runner({"tool": "gitleaks", "res": _res("[]")},
+                  {"tool": "trivy", "res": _res("{}")},
+                  {"tool": "semgrep", "res": _res("{}")},
+                  {"tool": "rg", "res": _res("")})
+    sectools.run_security_tools(
+        tmp_path, ["Dockerfile", "app.py"], DIFF, run)
+    by_tool = {c[0]: (c, o)
+               for c, o in zip(run.calls, run.outsides)}
+    gl_argv, gl_out = by_tool["gitleaks"]
+    tv_argv, tv_out = by_tool["trivy"]
+    sg_argv, _ = by_tool["semgrep"]
+    assert gl_out is True and tv_out is True
+    assert "--ignore-gitleaks-allow" in gl_argv
+    assert "-c" in gl_argv and \
+        gl_argv[gl_argv.index("-c") + 1].endswith("gitleaks.toml")
+    assert "--no-git-ignore" in sg_argv and "--jobs" in sg_argv
 
 
 def test_max_findings_cap(tmp_path, monkeypatch):
@@ -318,6 +359,74 @@ def test_disable_nosem_argv_is_not_a_directive(tmp_path):
         tmp_path, ["app.py"], diff, _runner())
     assert not any(f["title"] == "Scanner suppression directive added"
                    for f in out["findings"])
+
+
+def test_counter_scan_enumerates_preexisting(tmp_path):
+    # FR-O30: a pre-existing ignore file and a pre-existing inline
+    # directive surface as info findings; surfaces the PR itself
+    # touched are already warnings and not duplicated.
+    _touch(tmp_path, "app.py", "sub/.trivyignore")
+    rg_out = (
+        f"{tmp_path.resolve()}/app.py:5:# nosem  (pre-existing)\n"
+        f"{tmp_path.resolve()}/app.py:2:# nosem  (added line)\n"
+    )
+    diff = (
+        "diff --git a/app.py b/app.py\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " ctx\n"
+        "+# nosem\n"
+    )
+    out = sectools.run_security_tools(
+        tmp_path, ["app.py"], diff,
+        _runner({"tool": "rg", "res": _res(rg_out)},
+                {"tool": "gitleaks", "res": _res("[]")}))
+    infos = {f["title"] for f in out["findings"]
+             if f["severity"] == "info"}
+    assert "Scanner ignore/config file present" in infos
+    d = [f for f in out["findings"]
+         if f["title"] == "Suppression directive present"]
+    assert len(d) == 1 and "app.py:5" in d[0]["detail"]
+    # The PR-added .trivyignore-less file: sub/.trivyignore is not in
+    # changed -> info. app.py:2 directive landed on an added line ->
+    # deduped; FR-O29 warning fires instead.
+    assert any(f["title"] == "Scanner suppression directive added"
+               for f in out["findings"])
+    assert not any(f["file"] == "sub/.trivyignore"
+                   and f["severity"] == "warning"
+                   for f in out["findings"])
+
+
+def test_symlinks_excluded_from_targets(tmp_path):
+    _touch(tmp_path, "app.py")
+    (tmp_path / "evil.py").symlink_to("/etc/hostname")
+    calls = []
+    diff = DIFF
+
+    def run(repo, argv, timeout, *, outside=False):
+        calls.append(argv)
+        return _res("{}" if argv[0] == "semgrep" else "[]")
+    sectools.run_security_tools(
+        tmp_path, ["app.py", "evil.py"], diff, run)
+    sem = next(c for c in calls if c[0] == "semgrep")
+    assert not any("evil.py" in a for a in sem)
+
+
+def test_gitleaks_stdout_scrubbed(tmp_path):
+    # The raw report is the only place secret text exists — it must be
+    # blanked after parsing.
+    _touch(tmp_path, "app.py")
+    entries = [{"RuleID": "x", "File": "app.py", "StartLine": 2,
+                "Secret": "scrub-me-now"}]
+    res = _res(json.dumps(entries))
+
+    def run(repo, argv, timeout, *, outside=False):
+        if argv[0] == "gitleaks":
+            return res
+        return _res("[]")
+    sectools.run_security_tools(tmp_path, ["app.py"], DIFF, run)
+    assert res["stdout"] == ""
 
 
 def test_pgids_and_processes_recorded(tmp_path):
