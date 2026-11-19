@@ -149,6 +149,14 @@ validators, the dependency audit and the functional stage:
   containment replaces the trust requirement.
 - **Cleanup.** Timed-out sandboxes get a `container kill` second net
   and the cleanup node sweeps stale `qg-*` containers left by crashes.
+- **Security toolchain (FR-O29).** `semgrep` (curated ruleset),
+  `gitleaks` (secrets, added-lines only — never emits matched text)
+  and `trivy` (IaC misconfig on Dockerfiles/compose/workflows/
+  `deploy/`/`*.tf`) run in the same sandbox when their trigger
+  surface appears in the diff. Enabled list, timeout and findings
+  cap via `QG_SEC_TOOLS`/`QG_SEC_TOOL_TIMEOUT`/`QG_SEC_MAX_FINDINGS`;
+  missing tools degrade to info notes. Scanner-suppression files or
+  `nosem`/`tfsec:ignore`-style directives added by the PR warn.
 
 ## Environment variables
 

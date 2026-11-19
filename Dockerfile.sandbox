@@ -4,12 +4,34 @@
 # --network none / --read-only / resource caps per the FR-O28 contract.
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir uv pip-audit \
+# FR-O29 scanner versions — pinned releases with expected sha256
+# literals frozen in the Dockerfile (from the upstream checksum
+# manifests); the build fails if a tarball does not match.
+ARG GITLEAKS_VERSION=8.24.3
+ARG GITLEAKS_SHA256=9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
+ARG TRIVY_VERSION=0.76.2
+ARG TRIVY_SHA256=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+ARG SEMGREP_VERSION=1.186.0
+
+RUN pip install --no-cache-dir uv pip-audit "semgrep==${SEMGREP_VERSION}" \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-       nodejs npm git ripgrep ca-certificates \
+       nodejs npm git ripgrep ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+    && echo "${GITLEAKS_SHA256}  /tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | sha256sum -c - \
+    && tar -xzf "/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -C /usr/local/bin gitleaks \
+    && curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o "/tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+    && echo "${TRIVY_SHA256}  /tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c - \
+    && tar -xzf "/tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -C /usr/local/bin trivy \
+    && rm -f /tmp/gitleaks* /tmp/trivy* \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y --purge \
     && useradd --create-home --uid 10001 qg
+
+# FR-O29 vendored ruleset — semgrep runs offline against this dir.
+# Same files the orchestrator package uses for the host fallback.
+COPY packages/orchestrator/src/pr_review_orch/qg-rules/ /opt/qg-rules/
 
 USER qg
 WORKDIR /src
