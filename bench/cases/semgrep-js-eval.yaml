@@ -1,0 +1,14 @@
+id: semgrep-js-eval
+title: semgrep flags eval() in JavaScript
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  web/app.js: |
+    function load(code) {
+      return eval(code);
+    }
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-eval-usage

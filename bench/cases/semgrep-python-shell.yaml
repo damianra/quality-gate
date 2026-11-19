@@ -1,0 +1,15 @@
+id: semgrep-python-shell
+title: semgrep flags subprocess shell=True and os.system
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/runner.py: |
+    import os, subprocess
+    def run(cmd):
+        subprocess.run(cmd, shell=True)
+        os.system(cmd)
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: python-subprocess-shell

@@ -1,0 +1,37 @@
+id: vibecoding-leftovers
+title: debug leftovers, TODOs and commented blocks signal + warn
+tags: [review, signals, vibecoding]
+diff_text: |
+  diff --git a/app/svc.py b/app/svc.py
+  new file mode 100644
+  --- /dev/null
+  +++ b/app/svc.py
+  @@ -0,0 +1,10 @@
+  +def handle(x):
+  +    breakpoint()
+  +    # TODO: refactor this properly
+  +    # old_code()
+  +    # more_old()
+  +    # dead_stuff()
+  +    # legacy()
+  +    # gone()
+  +    # removed()
+  +    return x
+files:
+  app/svc.py: |
+    def handle(x):
+        breakpoint()
+        # TODO: refactor this properly
+        # old_code()
+        # more_old()
+        # dead_stuff()
+        # legacy()
+        # gone()
+        # removed()
+        return x
+expect:
+  signals: [debug_leftovers, todos_added, commented_blocks]
+  findings:
+    - agent: review
+      severity: warning
+      match: commented-out code

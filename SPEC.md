@@ -962,7 +962,8 @@ an enterprise-grade review platform. Each FR is independently scoped;
 the ordering composes: measure first, surface second, then widen
 coverage under measurement, then governance and isolation.
 
-- **FR-O31 Review-quality benchmark (golden set).** A corpus of
+- **FR-O31 Review-quality benchmark (golden set).** *(implemented —
+  `bench/`)* A corpus of
   synthetic PRs with known planted defects plus real historical cases
   lives under `bench/cases/*.yaml` (diff, repo fixture, expected
   findings by rule/severity, tags). An offline harness injects the

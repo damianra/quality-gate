@@ -169,6 +169,11 @@ funcional:
   un counter-scan enumera las superficies de supresión activas como
   info, y las tres herramientas corren de forma concurrente.
 
+- **Benchmark golden-set (FR-O31)** — `bench/` reejecuta un corpus de
+  PRs sintéticos (casos de detección + adversarios + falsos positivos)
+  contra las etapas deterministas reales y reporta detección por tag y
+  findings inesperados; ver `bench/README.md`.
+
 ## Variables de entorno
 
 Copiá `.env.example` a `.env` (ignorado por git) y completá los valores —

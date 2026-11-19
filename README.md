@@ -162,6 +162,11 @@ validators, the dependency audit and the functional stage:
   load), a counter-scan enumerates live suppression surfaces as info,
   and the three tools run concurrently.
 
+- **Golden-set benchmark (FR-O31)** — `bench/` replays a corpus of
+  synthetic PRs (detection + adversarial + false-positive cases)
+  through the real deterministic stages and reports per-tag detection
+  and unexpected findings; see `bench/README.md`.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` (gitignored) and fill in the values — it lists
