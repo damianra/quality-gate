@@ -45,9 +45,12 @@ _IAC_RE = re.compile(
 #: earn a warning — scanners themselves may silently honor them.
 #: `.gitleaks.toml` and `trivy.yaml` are auto-loaded configs (allowlist /
 #: severity overrides), not just ignore files.
+#: `.gitignore`/`.ignore` are on the list too: semgrep honors them
+#: (we pass --no-git-ignore so they cannot mute a scan, but a PR that
+#: edits them can still hide files from other tools/reviewers).
 _SCANNER_IGNORE_FILES = frozenset(
     {".gitleaksignore", ".gitleaks.toml", ".semgrepignore",
-     ".trivyignore", "trivy.yaml"})
+     ".trivyignore", "trivy.yaml", ".gitignore", ".ignore"})
 #: Inline suppression directives, scoped to their real comment syntaxes
 #: (per-language: #, //, /* */ and <!-- -->) — a bare `nosem` would
 #: over-match text like our own `--disable-nosem` argv.
@@ -172,18 +175,14 @@ def _record_process(out: dict[str, Any], argv: list[str],
 def _tool_missing(name: str, res: dict[str, Any]) -> bool:
     """Binary absent either on host (127) or in the sandbox image.
 
-    Only stderr is consulted, and only on a failed run — stdout is the
-    scanner's report (untrusted PR-influenced data) and even stderr can
-    carry benign warnings like 'lstat: no such file' on a successful
-    scan, so the heuristic is gated on a non-zero exit.
+    Only the exit code decides: 127 is the shell/container exec
+    "command not found". Stderr is deliberately NOT consulted — it is
+    untrusted tool output, and generic fs-error text ('stat x: no such
+    file') on a genuine scan failure would be misdiagnosed as a missing
+    binary and, in trivy's per-file loop, abort coverage of every
+    remaining target.
     """
-    code = res.get("exit_code", -1)
-    if code == 0:
-        return False
-    if code == 127:
-        return True
-    blob = str(res.get("stderr", "")).lower()
-    return "no such file" in blob or "command not found" in blob
+    return res.get("exit_code") == 127
 
 
 def _cap(findings: list[dict[str, Any]], tool: str) -> list[dict[str, Any]]:
@@ -239,9 +238,11 @@ def _semgrep(repo: Path, files: list[str],
             "scan locally for full coverage."))
     # "./" prefix: a PR-controlled filename starting with '-' cannot
     # inject tool options.
+    # --no-git-ignore: the PR controls .gitignore/.ignore — honoring
+    # them would let a diff hide whole paths from the scan.
     argv = ["semgrep", "scan", "--config", rules, "--json",
-            "--metrics", "off", "--disable-nosem", "--quiet",
-            *[f"./{f}" for f in targets]]
+            "--metrics", "off", "--disable-nosem", "--no-git-ignore",
+            "--quiet", *[f"./{f}" for f in targets]]
     res = _run_tool("semgrep", repo, argv, run, out)
     if res is None:
         return
@@ -309,6 +310,7 @@ def _gitleaks(repo: Path, changed: set[str],
             "gitleaks produced valid JSON of an unexpected shape."))
         entries = []
     findings: list[dict[str, Any]] = []
+    dropped_no_ranges = 0  # hits on changed files the diff did not map
     for e in entries:
         if not isinstance(e, dict):
             continue
@@ -317,8 +319,16 @@ def _gitleaks(repo: Path, changed: set[str],
             line = int(e.get("StartLine", 0))
         except (TypeError, ValueError):
             line = 0
-        if f not in changed or line not in ranges.get(f, set()):
+        if f not in changed:
+            continue  # pre-existing file — not this PR's concern
+        if f not in ranges:
+            # Changed file whose patch the API elided (large/generated)
+            # — dropping silently would be indistinguishable from
+            # "no secrets". Surface the coverage gap.
+            dropped_no_ranges += 1
             continue
+        if line not in ranges[f]:
+            continue  # hit on an untouched line — pre-existing leak
         rule = str(e.get("RuleID", "unknown"))
         # Never emit matched secret text — a non-reversible fingerprint
         # still lets maintainers confirm which value was flagged.
@@ -337,6 +347,12 @@ def _gitleaks(repo: Path, changed: set[str],
             f"gitleaks:{rule} matched an added line {line} — verify "
             f"and rotate if real{hint}.",
             file=f))
+    if dropped_no_ranges:
+        out["findings"].append(_finding(
+            "info", "gitleaks coverage gap",
+            f"{dropped_no_ranges} gitleaks hit(s) on changed file(s) "
+            "could not be verified against added lines — the API "
+            "elided those file patches; inspect the files directly."))
     out["findings"] += _cap(findings, "gitleaks")
 
 
@@ -399,16 +415,16 @@ def _suppression_findings(changed: set[str],
     silently honor — the PR controls its own ignore files."""
     out: list[dict[str, Any]] = []
     for f in changed:
-        if Path(f).name in _SCANNER_IGNORE_FILES:
+        if Path(f).name.lower() in _SCANNER_IGNORE_FILES:
             out.append(_finding(
                 "warning", "Scanner ignore file added",
                 f"`{f}` can suppress gitleaks/semgrep/trivy hits — "
                 "review its contents.", file=f))
     # Added lines only — removing or merely touching a suppression
     # marker in context must not warn. Only true file headers
-    # ('+++ b/…' / '+++ /dev/null') are excluded; a payload line like
-    # '+++ # nosem' still counts.
-    header = re.compile(r"\+\+\+ (?:b/|/dev/null)")
+    # ('+++ b/…', '+++ /dev/null' and the C-quoted '+++ "b/…"') are
+    # excluded; a payload line like '+++ # nosem' still counts.
+    header = re.compile(r'\+\+\+ (?:b/|/dev/null|")')
     if any(raw.startswith("+") and not header.match(raw)
            and _SUPPRESS_RE.search(raw) for raw in
            diff_text.splitlines()):

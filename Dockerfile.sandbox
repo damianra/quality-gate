@@ -25,6 +25,8 @@ RUN pip install --no-cache-dir uv pip-audit "semgrep==${SEMGREP_VERSION}" \
     && echo "${TRIVY_SHA256}  /tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c - \
     && tar -xzf "/tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -C /usr/local/bin trivy \
     && rm -f /tmp/gitleaks* /tmp/trivy* \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y --purge \
     && useradd --create-home --uid 10001 qg
 
 # FR-O29 vendored ruleset — semgrep runs offline against this dir.
