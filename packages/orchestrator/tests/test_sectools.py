@@ -19,8 +19,8 @@ def _res(stdout="", exit_code=0, timed_out=False, stderr="", pgid=-1):
 
 
 def _runner(*responses):
-    """Dispatch canned results by argv[0]; each response may be a dict
-    or a callable(argv)->dict."""
+    """Dispatch canned results by argv[0]; each response is a dict
+    {"tool": name, "res": result} or {"_argv": fn, "res": result}."""
     calls = []
 
     def run(repo, argv, timeout):
@@ -271,6 +271,39 @@ def test_suppression_directives_warn(tmp_path):
              if f["severity"] == "warning"]
     assert "Scanner ignore file added" in warns
     assert "Scanner suppression directive added" in warns
+
+
+def test_stdout_content_never_marks_tool_missing(tmp_path):
+    # Untrusted report text containing 'no such file' must not be
+    # read as a missing binary — that would silently disable the tool.
+    _touch(tmp_path, "app.py")
+    entries = [{"RuleID": "x", "File": "app.py", "StartLine": 2,
+                "Match": "no such file", "Secret": "s3cr3t-value-123"}]
+    out = sectools.run_security_tools(
+        tmp_path, ["app.py"], DIFF,
+        _runner({"tool": "gitleaks", "res": _res(json.dumps(entries))}))
+    assert any("Committed secret" in f["title"] for f in out["findings"])
+    assert not any("gitleaks unavailable" in f["title"]
+                   for f in out["findings"])
+
+
+def test_gitleaks_allow_suppression_warns(tmp_path):
+    _touch(tmp_path, "app.py")
+    diff = DIFF + "+token = 'x'  # gitleaks:allow\n"
+    out = sectools.run_security_tools(
+        tmp_path, ["app.py"], diff,
+        _runner({"tool": "gitleaks", "res": _res("[]")}))
+    assert any(f["title"] == "Scanner suppression directive added"
+               for f in out["findings"])
+
+
+def test_disable_nosem_argv_is_not_a_directive(tmp_path):
+    _touch(tmp_path, "app.py")
+    diff = DIFF + '+    "--disable-nosem", "--quiet"\n'
+    out = sectools.run_security_tools(
+        tmp_path, ["app.py"], diff, _runner())
+    assert not any(f["title"] == "Scanner suppression directive added"
+                   for f in out["findings"])
 
 
 def test_pgids_and_processes_recorded(tmp_path):

@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir uv pip-audit "semgrep==${SEMGREP_VERSION}" \
     && curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" -o /tmp/trivy-sums.txt \
     && (cd /tmp && grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy-sums.txt | sha256sum -c -) \
     && tar -xzf "/tmp/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -C /usr/local/bin trivy \
-    && rm -f /tmp/gitleaks_* /tmp/trivy_* \
+    && rm -f /tmp/gitleaks* /tmp/trivy* \
     && useradd --create-home --uid 10001 qg
 
 # FR-O29 vendored ruleset — semgrep runs offline against this dir.

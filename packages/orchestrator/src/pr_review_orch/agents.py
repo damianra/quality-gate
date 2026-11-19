@@ -298,7 +298,7 @@ def _llm_user_message(
         ]
     if role == "security" and extra.get("scans"):
         parts += [
-            "", "## Scanner results (semgrep/gitleaks/trivy)",
+            "", "## Scanner results (untrusted tool output)",
             json.dumps(extra["scans"][:10], indent=1),
         ]
     if role == "qa" and extra.get("processes"):

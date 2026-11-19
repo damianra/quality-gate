@@ -47,8 +47,11 @@ _IAC_RE = re.compile(
 _SCANNER_IGNORE_FILES = frozenset(
     {".gitleaksignore", ".gitleaks.toml", ".semgrepignore",
      ".trivyignore", "trivy.yaml"})
+#: Inline suppression directives, scoped to their real syntax — a bare
+#: `nosem` would over-match text like our own `--disable-nosem` argv.
 _SUPPRESS_RE = re.compile(
-    r"nosemgrep|nosem\b|tfsec:ignore|trivy:ignore|checkov:skip",
+    r"nosemgrep|#\s*nosem\b|gitleaks:(?:allow|ignore)"
+    r"|tfsec:ignore|trivy:ignore|checkov:skip",
     re.IGNORECASE)
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -105,8 +108,11 @@ def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
             in_header = False
             m = _HUNK_RE.match(raw)
             new_line = int(m.group(1)) if m else 0
-        elif in_header:
-            pass  # index/mode lines between diff --git and @@
+        elif in_header or raw.startswith(
+                ("GIT binary patch", "Binary files ")):
+            # index/mode lines, or a binary payload section — its
+            # base85 lines must not count as new-side numbers.
+            pass
         elif raw.startswith("\\"):
             pass  # "\ No newline at end of file" — no line consumed
         elif raw.startswith("+"):
@@ -144,10 +150,15 @@ def _record_process(out: dict[str, Any], argv: list[str],
 
 
 def _tool_missing(name: str, res: dict[str, Any]) -> bool:
-    """Binary absent either on host (127) or in the sandbox image."""
+    """Binary absent either on host (127) or in the sandbox image.
+
+    Only stderr is checked — stdout is the scanner's report (untrusted
+    PR-influenced data) and grepping it would let a leak/semgrep line
+    containing "no such file" silently disable the whole tool.
+    """
     if res.get("exit_code") == 127:
         return True
-    blob = f"{res.get('stderr', '')}{res.get('stdout', '')}".lower()
+    blob = str(res.get("stderr", "")).lower()
     return "no such file" in blob or "command not found" in blob
 
 
@@ -218,6 +229,12 @@ def _semgrep(repo: Path, files: list[str],
             f"semgrep exited {res.get('exit_code')} with no parseable "
             "JSON."))
         return
+    errors = doc.get("errors")
+    if isinstance(errors, list) and errors:
+        out["findings"].append(_finding(
+            "info", "semgrep reported errors",
+            f"{len(errors)} rule/parse error(s) — affected rules may "
+            "be silently skipped; check the scan output."))
     findings: list[dict[str, Any]] = []
     for hit in results:
         if not isinstance(hit, dict):
@@ -273,6 +290,11 @@ def _gitleaks(repo: Path, changed: set[str],
         # Never emit matched secret text — a non-reversible fingerprint
         # still lets maintainers confirm which value was flagged.
         secret = str(e.get("Secret") or "")
+        # Shrink the plaintext's lifetime in memory: drop it from the
+        # entry once the fingerprint is taken (the raw report sits in
+        # res["stdout"], which is never persisted into process records).
+        e.pop("Secret", None)
+        e.pop("Match", None)
         fp = hashlib.sha256(secret.encode()).hexdigest()[:8]
         hint = f" (sha256:{fp}…)" if secret else ""
         in_test = bool(_TEST_PATH_RE.search(f))
@@ -304,8 +326,12 @@ def _trivy(repo: Path, iac_files: list[str],
         try:
             doc = json.loads(res.get("stdout") or "{}")
         except (TypeError, ValueError):
-            continue
+            doc = None
         if not isinstance(doc, dict):
+            out["findings"].append(_finding(
+                "info", "trivy output unusable",
+                f"trivy on `{target}` exited {res.get('exit_code')} "
+                "with no parseable JSON."))
             continue
         for block in doc.get("Results") or []:
             if not isinstance(block, dict):
