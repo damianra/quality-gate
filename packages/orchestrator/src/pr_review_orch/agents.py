@@ -1161,7 +1161,10 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
     # JS/TS: project-local tsc wins; otherwise per-file node --check.
     local_tsc = repo / "node_modules" / ".bin" / "tsc"
     if local_tsc.exists() and (repo / "tsconfig.json").exists():
-        cmds.append(([str(local_tsc), "--noEmit"], False))
+        # Repo-relative argv: the absolute host path means nothing
+        # inside the FR-O28 sandbox, and the host fallback runs with
+        # cwd=repo so the relative path resolves there too.
+        cmds.append((["node_modules/.bin/tsc", "--noEmit"], False))
     elif shutil.which("node"):
         js_exts = {".js", ".jsx", ".mjs", ".cjs"}
         js_files = [
@@ -1180,8 +1183,12 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
     ][:20]
     python = shutil.which("python3") or shutil.which("python")
     if py_files and python:
+        # Bare executable name, not the resolved host path: an
+        # absolute like /usr/bin/python3 does not exist inside the
+        # sandbox container — the bare name resolves via PATH in
+        # both modes (the image ships python3).
         cmds.append(([
-            python, "-c",
+            Path(python).name, "-c",
             "import sys\n"
             "for f in sys.argv[1:]:\n"
             "    with open(f) as fh:\n"

@@ -62,7 +62,9 @@ def test_qa_commands_python_compile_check(monkeypatch, tmp_path):
         agents.shutil, "which", _which_only({"python3", "node"}))
     cmds = agents._qa_commands(tmp_path, ["app.py"])
     argv, executes = next(c for c in cmds if c[0][1] == "-c")
-    assert argv[0] == "/usr/bin/python3" and argv[-1] == "app.py"
+    # Bare name, not the resolved host path — the absolute host path
+    # does not exist inside the FR-O28 sandbox container.
+    assert argv[0] == "python3" and argv[-1] == "app.py"
     assert "compile(" in argv[2]
     assert executes is False  # syntax-only: never runs PR code (FR-P12)
 
