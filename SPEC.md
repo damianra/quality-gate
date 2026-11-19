@@ -666,6 +666,51 @@ duration lands in `node_durations`.
     `semgrep --baseline-commit` (new-findings-only) is the reserved
     next step — it needs the worktree's `.git` metadata and a
     merge-base fallback.
+- **FR-O32 SARIF output.** The run's findings convert to a SARIF
+  2.1.0 log so any SARIF-aware consumer — GitHub code scanning,
+  IDE integrations, third-party dashboards — can ingest them; on
+  GitHub they surface as PR line annotations and Security-tab
+  entries. Conversion is deterministic and additive: a SARIF
+  write/upload failure degrades to an error entry, never a run
+  failure — annotations mirror the verdict comment, they are not a
+  second gate.
+  - **Schema** (§6.3): findings gain `line: int | None` — the
+    1-based new-side line inside `file`. Producers that already
+    parse a line (semgrep `start.line`, gitleaks/trivy `StartLine`,
+    QA/compiler diagnostics that report one) populate it and stop
+    embedding `line N:` in `detail`; LLM specialists may return
+    `line`, which is validated like `file` under FR-O25 —
+    non-int/non-positive values drop to `None`. Findings without a
+    known location keep `line: None` and are still emitted.
+  - **Conversion**: a small `sarif.py` module maps the deduped
+    post-`_dedup_findings` list to one SARIF `run` per `agent`
+    value (§6.3 carries no finer tool discriminator; scanner
+    findings already encode it in `title`, e.g. `semgrep:<id>`,
+    which becomes the SARIF `ruleId`). Severity maps
+    `info→note`, `warning→warning`, `blocker→error`. `file`
+    becomes `artifactLocation.uri` (the already-normalized
+    repo-relative POSIX path) and `line` becomes
+    `region.startLine` — both omitted when absent so file-less
+    findings still land as run-level results. Each run declares
+    `tool.driver.name` = `quality-gate-<agent>` and
+    `columnKind: utf16CodeUnits` per the code-scanning contract;
+    no custom fingerprints — the consumer computes them.
+  - **Emission**: the log writes to `QG_SARIF_PATH` (default
+    `quality-gate.sarif` at the repo/worktree root; `off`/empty
+    disables) during synthesis, after dedup, so the artifact
+    matches the posted comment exactly.
+  - **CI upload**: `pr-review.yml` gains a pinned
+    `codeql-action/upload-sarif` step (`if: always()`, advisory —
+    its failure never fails the job) plus `security-events:
+    write` on the job permissions. On private repos code
+    scanning requires GitHub Advanced Security (free on public);
+    the `.sarif` file remains the portable artifact for
+    self-hosted deployments, which can post it through the
+    code-scanning API.
+  - **Comment** (§6.1): a finding bullet whose finding carries
+    `file` renders the location as a `file[:line] — ` prefix on
+    its detail, replacing the embedded `line N:` text producers
+    used to write.
 
 ## 5. Non-functional requirements
 
@@ -699,7 +744,8 @@ duration lands in `node_durations`.
 
 - ✅|⚠️|❌ **check** — detail   # icon maps to check.severity:
   # info->✅  warning->⚠️  blocker->❌ (checks without severity fall
-  # back to passed->✅ / failed->❌)
+  # back to passed->✅ / failed->❌); detail is prefixed
+  # `file[:line] — ` when the finding carries a location (FR-O32)
 
 **Result:** <summary>
 **Note:** <note>
@@ -746,7 +792,8 @@ state_mutations[{file,remove_line,add_line,pair}] (FR-C8)
 
 ```text
 {agent: "review|security|qa", severity: "info|warning|blocker",
- title: str, detail: str, file: str | None}
+ title: str, detail: str, file: str | None, line: int | None}
+ # line: 1-based new-side line in `file` (FR-O32)
 ```
 
 ### 6.4 Graph state (`PRReviewState`, TypedDict total=False)
@@ -772,7 +819,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28), `QG_SEC_TOOLS`, `QG_SEC_TOOL_TIMEOUT`, `QG_SEC_MAX_FINDINGS` (FR-O29) |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28), `QG_SEC_TOOLS`, `QG_SEC_TOOL_TIMEOUT`, `QG_SEC_MAX_FINDINGS` (FR-O29), `QG_SARIF_PATH` (FR-O32) |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
@@ -784,8 +831,9 @@ All via env vars; `.env.example` is the canonical template.
   orchestrator CI also triggers on mcp-server changes.
 - **CI — `pr-review.yml`:** on `pull_request` (opened/synchronize/reopened),
   Postgres service, `concurrency.cancel-in-progress: false` (cleanup must
-  complete), signal-scan summary step, orchestrator run, and a final
-  `pgrep` orphan assertion (`if: always()`).
+  complete), signal-scan summary step, orchestrator run, an advisory
+  `codeql-action/upload-sarif` step feeding `QG_SARIF_PATH`
+  (FR-O32), and a final `pgrep` orphan assertion (`if: always()`).
 - **Images:** OCI Dockerfiles per package, built from repo root, uv-based
   `uv sync --no-dev --package <pkg>`, non-root `appuser` (uid 10001).
   `qg-sandbox` (FR-O28) is an additional execution image with the
@@ -911,6 +959,8 @@ volatile during early history edits; commits are identified by subject):
 | 89 | `feat(orchestrator)`: FR-O30 scanner config pinning, counter-scan, single-spawn trivy + parallel stage |
 | 90 | `docs`: quality & enterprise roadmap (FR-O31..O35) |
 | 91 | `feat`: FR-O31 golden-set benchmark harness + initial corpus |
+| 92 | `fix(orchestrator)`: post-merge review hardening for FR-O31 |
+| 93 | `docs`: FR-O32 SARIF output |
 
 ## 11. Extension points (SDD backlog)
 
@@ -977,7 +1027,7 @@ coverage under measurement, then governance and isolation.
   cases; an adversarial subset replays the suppression/evasion
   attacks FR-O29/FR-O30 defend against. Runs in a periodic CI job,
   not per-PR.
-- **FR-O32 SARIF output.** Findings convert to SARIF 2.1.0 `runs`
+- **FR-O32 SARIF output.** *(spec'd — §4.2)* Findings convert to SARIF 2.1.0 `runs`
   (one per agent — the §6.3 schema has no tool discriminator
   unless one is added) via a small `sarif.py` module; the finding
   schema (§6.3) gains an explicit `line` field (today it lives
