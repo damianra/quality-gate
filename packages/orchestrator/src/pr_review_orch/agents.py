@@ -1159,8 +1159,10 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
 
     Each entry is ``(argv, executes_pr_code)`` — FR-P12: *executing*
     validators (cargo check runs build.rs/proc-macros, go vet may build
-    cgo) are gated by ``config.EXEC_VALIDATORS`` upstream; *syntax-only*
-    validators (tsc --noEmit, node --check, compile()) never run PR code.
+    cgo) are gated by ``config.EXEC_VALIDATORS`` upstream; the
+    *syntax-only* validators below do not run PR code — except a
+    repo-local ``node_modules/.bin/tsc``, which is PR-controlled and
+    flagged ``executes_pr_code=True``.
     """
     cmds: list[tuple[list[str], bool]] = []
     suffixes = {Path(f).suffix.lower() for f in files}
@@ -1180,7 +1182,11 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
         # Repo-relative argv: the absolute host path means nothing
         # inside the FR-O28 sandbox, and the host fallback runs with
         # cwd=repo so the relative path resolves there too.
-        cmds.append((["node_modules/.bin/tsc", "--noEmit"], False))
+        # executes_pr_code=True: tsc IS a repo-controlled binary — on
+        # the host fallback it runs attacker-supplied code, so it is
+        # gated like go vet / cargo check (sandbox containment still
+        # allows it).
+        cmds.append((["node_modules/.bin/tsc", "--noEmit"], True))
     elif on_path("node"):
         js_exts = {".js", ".jsx", ".mjs", ".cjs"}
         js_files = [

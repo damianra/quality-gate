@@ -186,14 +186,27 @@ def evaluate_case(case: dict[str, Any], *, include_llm: bool,
     pgids: list[int] = []
     try:
         expect = case.get("expect")
-        if not isinstance(expect, dict) or not (
-                expect.get("findings") is not None
-                or expect.get("signals") is not None
-                or expect.get("no_unexpected_above") is not None):
+        if not isinstance(expect, dict) or not any(
+                expect.get(k) for k in
+                ("findings", "signals", "no_unexpected_above")):
             result["missing"].append(
                 "schema: case has no usable 'expect' block "
                 "(a case must assert something — vacuous pass is "
                 "not allowed)")
+            return result
+        if (expect.get("signals") is not None
+                and not isinstance(expect["signals"], list)) or (
+                expect.get("findings") is not None
+                and not (isinstance(expect["findings"], list)
+                         and all(isinstance(e, dict)
+                                 for e in expect["findings"]))) or (
+                expect.get("no_unexpected_above") is not None
+                and not (isinstance(expect["no_unexpected_above"], str)
+                         and expect["no_unexpected_above"] in _SEV)):
+            result["missing"].append(
+                "schema: expect.signals must be a list, "
+                "expect.findings a list of mappings, "
+                "no_unexpected_above one of info|warning|blocker")
             return result
 
         files = case.get("files") or {}
@@ -247,29 +260,33 @@ def evaluate_case(case: dict[str, Any], *, include_llm: bool,
         {k: f.get(k) for k in ("agent", "severity", "title", "file")}
         for f in findings]
 
-    for sig in expect.get("signals", []):
-        if not signals.get(sig):
-            result["missing_signals"].append(sig)
+    try:
+        for sig in expect.get("signals") or []:
+            if not signals.get(sig):
+                result["missing_signals"].append(sig)
 
-    matched: set[int] = set()
-    for exp in expect.get("findings", []):
-        hit = next((i for i, f in enumerate(findings)
-                    if i not in matched and _matches(exp, f)), None)
-        if hit is None:
-            result["missing"].append(exp)
-        else:
-            matched.add(hit)
+        matched: set[int] = set()
+        for exp in expect.get("findings") or []:
+            hit = next((i for i, f in enumerate(findings)
+                        if i not in matched and _matches(exp, f)), None)
+            if hit is None:
+                result["missing"].append(exp)
+            else:
+                matched.add(hit)
 
-    cap = expect.get("no_unexpected_above")
-    if cap in _SEV:
-        for i, f in enumerate(findings):
-            if i in matched:
-                continue
-            sev = str(f.get("severity", "info")).lower()
-            if _SEV.get(sev, 0) >= _SEV[cap]:
-                result["unexpected"].append({
-                    "agent": f.get("agent"), "severity": sev,
-                    "title": f.get("title"), "file": f.get("file")})
+        cap = expect.get("no_unexpected_above")
+        if cap in _SEV:
+            for i, f in enumerate(findings):
+                if i in matched:
+                    continue
+                sev = str(f.get("severity", "info")).lower()
+                if _SEV.get(sev, 0) >= _SEV[cap]:
+                    result["unexpected"].append({
+                        "agent": f.get("agent"), "severity": sev,
+                        "title": f.get("title"), "file": f.get("file")})
+    except Exception as exc:  # noqa: BLE001 - malformed case, not crash
+        result["missing"].append(f"evaluation error: {exc!r}")
+        return result
 
     if not (result["missing"] or result["unexpected"]
             or result["missing_signals"]):
