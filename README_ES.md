@@ -155,6 +155,15 @@ funcional:
 - **Limpieza.** Los sandboxes que agotan su timeout reciben un
   `container kill` como segunda red y el nodo cleanup barre contenedores
   `qg-*` residuales de corridas caídas.
+- **Toolchain de seguridad (FR-O29).** `semgrep` (ruleset curado),
+  `gitleaks` (secretos, solo líneas agregadas — nunca emite el texto
+  matcheado) y `trivy` (misconfig de IaC en Dockerfiles/compose/
+  workflows/`deploy/`/`*.tf`) corren en el mismo sandbox cuando su
+  superficie de disparo aparece en el diff. Lista habilitada, timeout
+  y tope de findings vía `QG_SEC_TOOLS`/`QG_SEC_TOOL_TIMEOUT`/
+  `QG_SEC_MAX_FINDINGS`; herramientas ausentes degradan a notas info.
+  Archivos de supresión de scanners o directivas tipo `nosem`/
+  `tfsec:ignore` agregadas por el PR advierten.
 
 ## Variables de entorno
 

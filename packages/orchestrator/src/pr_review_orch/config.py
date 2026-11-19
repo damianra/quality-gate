@@ -104,6 +104,17 @@ SANDBOX_EXEC_ALLOW = frozenset(
 FUNC_TIMEOUT = int(os.environ.get("QG_FUNC_TIMEOUT", "300"))
 FUNC_MAX_STEPS = int(os.environ.get("QG_FUNC_MAX_STEPS", "3"))
 
+#: FR-O29: vendored security scanners (semgrep, gitleaks, trivy) run
+#: inside the sandbox — enabled tool list, per-tool timeout and the
+#: cap on emitted findings per tool.
+SEC_TOOLS = frozenset(
+    t.strip() for t in os.environ.get(
+        "QG_SEC_TOOLS", "semgrep,gitleaks,trivy").split(",")
+    if t.strip()
+)
+SEC_TOOL_TIMEOUT = int(os.environ.get("QG_SEC_TOOL_TIMEOUT", "120"))
+SEC_MAX_FINDINGS = int(os.environ.get("QG_SEC_MAX_FINDINGS", "10"))
+
 # --- Service mode (FR-O19..O22): webhook ingress + ephemeral fetch ------- #
 
 #: HMAC secret for X-Hub-Signature-256 verification. REQUIRED in service

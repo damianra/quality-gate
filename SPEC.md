@@ -832,6 +832,7 @@ volatile during early history edits; commits are identified by subject):
 | 84 | `docs`: FR-O28 sandboxed execution + functional validation |
 | 85 | `feat(orchestrator)`: FR-O28 sandboxed execution + functional stage |
 | 86 | `docs`: FR-O29 security scanning toolchain |
+| 87 | `feat(orchestrator)`: FR-O29 semgrep/gitleaks/trivy in sandbox |
 
 ## 11. Extension points (SDD backlog)
 

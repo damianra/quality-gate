@@ -22,7 +22,7 @@ from typing import Any
 
 from quality_gate_mcp import tools as mcp_tools
 
-from . import config, functional, llm, sandbox
+from . import config, functional, llm, sandbox, sectools
 from .prompts import QA_PROMPT, REVIEW_PROMPT, SECURITY_PROMPT
 
 logger = logging.getLogger("pr-review-orch")
@@ -295,6 +295,11 @@ def _llm_user_message(
         parts += [
             "", "## Dependency audit",
             json.dumps(extra["audit"][:10], indent=1),
+        ]
+    if role == "security" and extra.get("scans"):
+        parts += [
+            "", "## Scanner results (semgrep/gitleaks/trivy)",
+            json.dumps(extra["scans"][:10], indent=1),
         ]
     if role == "qa" and extra.get("processes"):
         parts += [
@@ -1090,16 +1095,29 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     )
     findings += audit["findings"]
 
+    # FR-O29: vendored scanners (semgrep/gitleaks/trivy) inside the
+    # FR-O28 sandbox — additive deterministic evidence; output is
+    # untrusted data and every failure degrades to an info note.
+    scans = sectools.run_security_tools(
+        Path(state["repo_path"]),
+        [f["filename"] for f in state.get("files", [])],
+        s.get("diff_text", ""),
+        _run_pr_command,
+    )
+    findings += scans["findings"]
+
     # FR-O16: optional LLM pass with the security role config; degrades to
     # info notes on any failure — never removes deterministic findings.
     enrich = _llm_enrich("security", SECURITY_PROMPT, state,
-                      extra={"audit": audit["findings"]})
+                      extra={"audit": audit["findings"],
+                             "scans": scans["findings"]})
     findings += enrich["findings"]
     return {
         "findings": findings,
         "llm_calls": enrich["llm_calls"],
-        "active_pgids": audit["pgids"] + enrich["active_pgids"],
-        "processes": audit["processes"],
+        "active_pgids": (audit["pgids"] + scans["pgids"]
+                         + enrich["active_pgids"]),
+        "processes": audit["processes"] + scans["processes"],
     }
 
 
