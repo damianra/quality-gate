@@ -12,9 +12,9 @@ emitted into findings.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-import shutil
 from pathlib import Path
 from typing import Any, Callable
 
@@ -42,13 +42,19 @@ _IAC_RE = re.compile(
 #: Scanner-suppression directives a PR could add to mute the toolchain.
 #: The PR controls its own tree, so these files/inline markers always
 #: earn a warning — scanners themselves may silently honor them.
+#: `.gitleaks.toml` and `trivy.yaml` are auto-loaded configs (allowlist /
+#: severity overrides), not just ignore files.
 _SCANNER_IGNORE_FILES = frozenset(
-    {".gitleaksignore", ".semgrepignore", ".trivyignore"})
+    {".gitleaksignore", ".gitleaks.toml", ".semgrepignore",
+     ".trivyignore", "trivy.yaml"})
 _SUPPRESS_RE = re.compile(
     r"nosemgrep|nosem\b|tfsec:ignore|trivy:ignore|checkov:skip",
     re.IGNORECASE)
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+#: Non-code extensions the `generic` semgrep rules still cover.
+_GENERIC_EXTS = frozenset({".sh", ".bash", ".zsh"})
 
 #: Same fixture-path policy as the SecurityAgent secret signal.
 _TEST_PATH_RE = re.compile(
@@ -66,7 +72,8 @@ _TARGET_PREFIXES = ("./", "/src/", "/")
 def _finding(severity: str, title: str, detail: str,
              file: str | None = None) -> dict[str, Any]:
     return {"agent": "security", "severity": severity, "title": title,
-            "detail": detail, "file": file}
+            "detail": detail,
+            "file": file[:200] if isinstance(file, str) else file}
 
 
 def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
@@ -75,17 +82,33 @@ def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
     Gitleaks reports whole-file hits; only findings whose start line
     sits on an added line survive — pre-existing leaks in untouched
     code must not fire on this PR.
+
+    ``---``/``+++`` are file headers ONLY between ``diff --git`` and the
+    first ``@@`` — inside a hunk an added line whose content starts with
+    ``++`` (``+++foo``) or a deleted line starting ``-- `` is payload,
+    not a header. ``\\ No newline at end of file`` markers consume no
+    new-side line number.
     """
     ranges: dict[str, set[int]] = {}
     current: str | None = None
+    in_header = False
     new_line = 0
     for raw in diff_text.splitlines():
-        if raw.startswith("+++"):
+        if raw.startswith("diff --git "):
+            current, in_header = None, True
+        elif in_header and raw.startswith("--- "):
+            pass
+        elif in_header and raw.startswith("+++ "):
             target = raw[4:].strip()
             current = target[2:] if target.startswith("b/") else None
         elif raw.startswith("@@"):
+            in_header = False
             m = _HUNK_RE.match(raw)
             new_line = int(m.group(1)) if m else 0
+        elif in_header:
+            pass  # index/mode lines between diff --git and @@
+        elif raw.startswith("\\"):
+            pass  # "\ No newline at end of file" — no line consumed
         elif raw.startswith("+"):
             if current is not None:
                 ranges.setdefault(current, set()).add(new_line)
@@ -143,7 +166,13 @@ def _run_tool(name: str, repo: Path, argv: list[str],
               run: Runner, out: dict[str, Any]) -> dict[str, Any] | None:
     """Spawn one scanner; ``None`` signals a degraded run (already
     reported as an info finding + process entry)."""
-    res = run(repo, argv, config.SEC_TOOL_TIMEOUT)
+    try:
+        res = run(repo, argv, config.SEC_TOOL_TIMEOUT)
+    except OSError:  # binary absent on the host-fallback path
+        out["findings"].append(_finding(
+            "info", f"{name} unavailable",
+            f"{name} is not on PATH in this environment; skipped."))
+        return None
     _record_process(out, argv, res)
     if res.get("timed_out"):
         out["findings"].append(_finding(
@@ -162,9 +191,17 @@ def _run_tool(name: str, repo: Path, argv: list[str],
 def _semgrep(repo: Path, files: list[str],
              run: Runner, out: dict[str, Any]) -> None:
     rules = _IMAGE_RULES if sandbox.available() else str(_PKG_RULES)
+    targets, skipped = files[:64], len(files) - 64
+    if skipped > 0:
+        out["findings"].append(_finding(
+            "info", "semgrep target list truncated",
+            f"{skipped} changed file(s) skipped by the target cap; "
+            "scan locally for full coverage."))
+    # "./" prefix: a PR-controlled filename starting with '-' cannot
+    # inject tool options.
     argv = ["semgrep", "scan", "--config", rules, "--json",
             "--metrics", "off", "--disable-nosem", "--quiet",
-            *files[:64]]
+            *[f"./{f}" for f in targets]]
     res = _run_tool("semgrep", repo, argv, run, out)
     if res is None:
         return
@@ -185,14 +222,16 @@ def _semgrep(repo: Path, files: list[str],
     for hit in results:
         if not isinstance(hit, dict):
             continue
-        extra = hit.get("extra") or {}
+        extra = hit.get("extra")
+        start = hit.get("start")
+        extra = extra if isinstance(extra, dict) else {}
+        start = start if isinstance(start, dict) else {}
         sev = "warning" if str(
             extra.get("severity", "")).upper() == "ERROR" else "info"
-        start = (hit.get("start") or {}).get("line", "?")
         msg = str(extra.get("message") or hit.get("check_id", ""))[:160]
         findings.append(_finding(
             sev, f"semgrep:{hit.get('check_id', 'unknown')}",
-            f"line {start}: {msg}",
+            f"line {start.get('line', '?')}: {msg}",
             file=_repo_path(str(hit.get("path", ""))) or None))
     out["findings"] += _cap(findings, "semgrep")
 
@@ -231,8 +270,11 @@ def _gitleaks(repo: Path, changed: set[str],
         if f not in changed or line not in ranges.get(f, set()):
             continue
         rule = str(e.get("RuleID", "unknown"))
+        # Never emit matched secret text — a non-reversible fingerprint
+        # still lets maintainers confirm which value was flagged.
         secret = str(e.get("Secret") or "")
-        hint = f" ({secret[:4]}…)" if len(secret) > 4 else ""
+        fp = hashlib.sha256(secret.encode()).hexdigest()[:8]
+        hint = f" (sha256:{fp}…)" if secret else ""
         in_test = bool(_TEST_PATH_RE.search(f))
         findings.append(_finding(
             "warning" if in_test else "blocker",
@@ -247,10 +289,15 @@ def _trivy(repo: Path, iac_files: list[str],
            run: Runner, out: dict[str, Any]) -> None:
     # `trivy config` takes one target — spawn per changed IaC file
     # (bounded) rather than scanning the tree and guessing Target paths.
+    if len(iac_files) > 8:
+        out["findings"].append(_finding(
+            "info", "trivy target list truncated",
+            f"{len(iac_files) - 8} IaC file(s) skipped by the target "
+            "cap; scan locally for full coverage."))
     findings: list[dict[str, Any]] = []
     for target in iac_files[:8]:
         argv = ["trivy", "config", "--format", "json",
-                "--exit-code", "0", target]
+                "--exit-code", "0", f"./{target}"]
         res = _run_tool("trivy", repo, argv, run, out)
         if res is None:
             return  # degraded run already noted; no point retrying
@@ -261,12 +308,16 @@ def _trivy(repo: Path, iac_files: list[str],
         if not isinstance(doc, dict):
             continue
         for block in doc.get("Results") or []:
+            if not isinstance(block, dict):
+                continue
             for mc in block.get("Misconfigurations") or []:
                 if not isinstance(mc, dict):
                     continue
                 sev = str(mc.get("Severity", "")).upper()
                 mapped = "warning" if sev in {"CRITICAL", "HIGH"} else "info"
-                line = (mc.get("CauseMetadata") or {}).get("StartLine")
+                meta = mc.get("CauseMetadata")
+                line = meta.get("StartLine") if isinstance(meta, dict) \
+                    else None
                 loc = f"line {line}: " if line else ""
                 findings.append(_finding(
                     mapped,
@@ -287,7 +338,11 @@ def _suppression_findings(changed: set[str],
                 "warning", "Scanner ignore file added",
                 f"`{f}` can suppress gitleaks/semgrep/trivy hits — "
                 "review its contents.", file=f))
-    if _SUPPRESS_RE.search(diff_text):
+    # Added lines only — removing or merely touching a suppression
+    # marker in context must not warn.
+    if any(raw.startswith("+") and not raw.startswith("+++")
+           and _SUPPRESS_RE.search(raw) for raw in
+           diff_text.splitlines()):
         out.append(_finding(
             "warning", "Scanner suppression directive added",
             "The diff adds a nosem/tfsec/trivy/checkov suppression "
@@ -313,15 +368,23 @@ def run_security_tools(repo: Path, files: list[str], diff_text: str,
     out["findings"] += _suppression_findings(changed, diff_text)
     ranges = added_line_ranges(diff_text)
 
-    code_files = [f for f in sorted(changed)
-                  if Path(f).suffix.lower() in config.QA_CODE_EXTS]
-    if "semgrep" in enabled and code_files:
-        _semgrep(repo, code_files, run, out)
+    iac = [f for f in sorted(changed) if _IAC_RE.search(f)]
+
+    # Code files drive the language rules; shell scripts and the IaC
+    # surface are included so the `generic` rules (curl|sh, private-key
+    # blocks) can fire on them.
+    sem_targets = {
+        f for f in changed
+        if Path(f).suffix.lower() in config.QA_CODE_EXTS
+        or Path(f).suffix.lower() in _GENERIC_EXTS
+        or f in iac
+    }
+    if "semgrep" in enabled and sem_targets:
+        _semgrep(repo, sorted(sem_targets), run, out)
 
     if "gitleaks" in enabled:
         _gitleaks(repo, changed, ranges, run, out)
 
-    iac = [f for f in sorted(changed) if _IAC_RE.search(f)]
     if "trivy" in enabled and iac:
         _trivy(repo, iac, run, out)
 

@@ -77,6 +77,27 @@ def test_added_line_ranges():
     assert "del.py" not in r or not r.get("del.py")
 
 
+def test_added_line_ranges_payload_lookalikes():
+    # Inside a hunk, '+++foo' is an ADDED line, '-- x' a DELETED one —
+    # never file headers. '\ No newline' markers consume no line.
+    diff = (
+        "diff --git a/c.py b/c.py\n"
+        "--- a/c.py\n"
+        "+++ b/c.py\n"
+        "@@ -1,3 +1,3 @@\n"
+        " ctx\n"
+        "+++payload line is added\n"
+        "-rm\n"
+        "-- deleted-looking content\n"
+        "\\ No newline at end of file\n"
+        "+after\n"
+    )
+    r = sectools.added_line_ranges(diff)
+    # +++payload consumes line 2; deletions and the \ marker consume
+    # nothing, so +after lands on line 3.
+    assert r["c.py"] == {2, 3}
+
+
 def test_triggers_only_with_matching_files(tmp_path):
     _touch(tmp_path, "app.py", "Dockerfile", "readme.md")
     calls = []
@@ -174,8 +195,13 @@ def test_gitleaks_added_line_filter_and_redaction(tmp_path):
     blockers = [f for f in out["findings"] if f["severity"] == "blocker"]
     assert len(blockers) == 1
     assert "gitleaks:aws-key" in blockers[0]["detail"]
+    # Matched secret text never emitted — only a non-reversible
+    # fingerprint for rotation checks.
     assert "AKIAFAKESECRET12345" not in blockers[0]["detail"]
-    assert "AKIA…" in blockers[0]["detail"]
+    assert "AKIA" not in blockers[0]["detail"]
+    import hashlib
+    fp = hashlib.sha256(b"AKIAFAKESECRET12345").hexdigest()[:8]
+    assert fp in blockers[0]["detail"]
 
 
 def test_gitleaks_test_path_downgrades(tmp_path):
@@ -214,7 +240,7 @@ def test_trivy_severity_and_per_file(tmp_path):
         return _res("{}" if argv[0] == "semgrep" else "[]")
     out = sectools.run_security_tools(
         tmp_path, ["Dockerfile", "deploy/app.yaml", "src/a.py"], DIFF, run)
-    assert set(calls) == {"Dockerfile", "deploy/app.yaml"}
+    assert set(calls) == {"./Dockerfile", "./deploy/app.yaml"}
     tv = [f for f in out["findings"] if f["title"].startswith("trivy:")]
     assert any(f["severity"] == "warning" for f in tv)
     assert any(f["severity"] == "info" for f in tv)

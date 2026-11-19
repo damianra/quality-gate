@@ -578,8 +578,8 @@ duration lands in `node_durations`.
     parsed from the unified diff) — pre-existing secrets in
     untouched code do not fire. A hit is a **blocker** matching the
     `secret_candidates` policy, downgraded to warning in test paths
-    (`_TEST_PATH_RE`); the detail shows a redacted prefix +
-    rule id, never the matched secret text.
+    (`_TEST_PATH_RE`); the detail shows a truncated sha256
+    fingerprint + rule id, never the matched secret text.
   - **IaC — trivy config**: triggered when the diff touches the IaC
     subset of the sensitive-config watchlist (`Dockerfile*`,
     `docker-compose*.y*ml`, `compose.y*ml`, `.github/workflows/*`)
