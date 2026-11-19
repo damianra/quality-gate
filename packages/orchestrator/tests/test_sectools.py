@@ -317,6 +317,33 @@ def test_pgids_and_processes_recorded(tmp_path):
                for p in out["processes"])
 
 
+def test_triggered_routing_surface():
+    # gitleaks (default-enabled) scans any changed file.
+    assert sectools.triggered(["README.md"])
+    assert not sectools.triggered([])
+    orig = config.SEC_TOOLS
+    try:
+        config.SEC_TOOLS = frozenset({"semgrep"})
+        assert sectools.triggered(["a.py"])
+        assert sectools.triggered(["Dockerfile"])  # generic/IaC surface
+        assert not sectools.triggered(["README.md"])
+        config.SEC_TOOLS = frozenset({"trivy"})
+        assert sectools.triggered(["deploy/app.yaml"])
+        assert not sectools.triggered(["a.py"])
+        config.SEC_TOOLS = frozenset()
+        assert not sectools.triggered(["a.py"])
+    finally:
+        config.SEC_TOOLS = orig
+
+
+def test_choose_agents_routes_security_on_scanner_surface():
+    from pr_review_orch import agents
+    # No signals at all — FR-O29 triggers on files alone.
+    res = agents.choose_agents({}, [{"filename": "app.py"}])
+    assert "security" in res
+    assert agents.choose_agents({}, []) == ["review"]
+
+
 def test_security_specialist_merges_scans(monkeypatch, tmp_path):
     from pr_review_orch import agents
     canned = {"findings": [{"agent": "security", "severity": "warning",

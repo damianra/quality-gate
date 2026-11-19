@@ -47,10 +47,12 @@ _IAC_RE = re.compile(
 _SCANNER_IGNORE_FILES = frozenset(
     {".gitleaksignore", ".gitleaks.toml", ".semgrepignore",
      ".trivyignore", "trivy.yaml"})
-#: Inline suppression directives, scoped to their real syntax — a bare
-#: `nosem` would over-match text like our own `--disable-nosem` argv.
+#: Inline suppression directives, scoped to their real comment syntaxes
+#: (per-language: #, //, /* */ and <!-- -->) — a bare `nosem` would
+#: over-match text like our own `--disable-nosem` argv.
 _SUPPRESS_RE = re.compile(
-    r"nosemgrep|#\s*nosem\b|gitleaks:(?:allow|ignore)"
+    r"nosemgrep|(?:#|//|/\*|<!--)\s*nosem\b"
+    r"|gitleaks:(?:allow|ignore)"
     r"|tfsec:ignore|trivy:ignore|checkov:skip",
     re.IGNORECASE)
 
@@ -95,24 +97,26 @@ def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
     ranges: dict[str, set[int]] = {}
     current: str | None = None
     in_header = False
+    binary = False  # inside a GIT binary patch — payload is base85
     new_line = 0
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git "):
-            current, in_header = None, True
+            current, in_header, binary = None, True, False
+        elif binary:
+            pass
         elif in_header and raw.startswith("--- "):
             pass
         elif in_header and raw.startswith("+++ "):
             target = raw[4:].strip()
             current = target[2:] if target.startswith("b/") else None
+        elif raw.startswith(("GIT binary patch", "Binary files ")):
+            binary = True
         elif raw.startswith("@@"):
             in_header = False
             m = _HUNK_RE.match(raw)
             new_line = int(m.group(1)) if m else 0
-        elif in_header or raw.startswith(
-                ("GIT binary patch", "Binary files ")):
-            # index/mode lines, or a binary payload section — its
-            # base85 lines must not count as new-side numbers.
-            pass
+        elif in_header:
+            pass  # index/mode lines between diff --git and @@
         elif raw.startswith("\\"):
             pass  # "\ No newline at end of file" — no line consumed
         elif raw.startswith("+"):
@@ -183,6 +187,11 @@ def _run_tool(name: str, repo: Path, argv: list[str],
         out["findings"].append(_finding(
             "info", f"{name} unavailable",
             f"{name} is not on PATH in this environment; skipped."))
+        # Pseudo-record so callers can tell missing-binary (exit -1)
+        # apart from a timeout when deciding whether to keep going.
+        out["processes"].append({
+            "agent": "security", "command": " ".join(argv)[:200],
+            "duration_s": 0.0, "exit_code": -1, "timed_out": False})
         return None
     _record_process(out, argv, res)
     if res.get("timed_out"):
@@ -322,7 +331,12 @@ def _trivy(repo: Path, iac_files: list[str],
                 "--exit-code", "0", f"./{target}"]
         res = _run_tool("trivy", repo, argv, run, out)
         if res is None:
-            return  # degraded run already noted; no point retrying
+            # A missing binary aborts the whole loop; a timeout on one
+            # file must not forfeit coverage of the remaining targets.
+            if out["processes"] and \
+                    out["processes"][-1].get("timed_out"):
+                continue
+            return
         try:
             doc = json.loads(res.get("stdout") or "{}")
         except (TypeError, ValueError):
@@ -365,8 +379,9 @@ def _suppression_findings(changed: set[str],
                 f"`{f}` can suppress gitleaks/semgrep/trivy hits — "
                 "review its contents.", file=f))
     # Added lines only — removing or merely touching a suppression
-    # marker in context must not warn.
-    if any(raw.startswith("+") and not raw.startswith("+++")
+    # marker in context must not warn. Only the '+++ ' file header is
+    # excluded: '+++x' inside a hunk is an added payload line.
+    if any(raw.startswith("+") and not raw.startswith("+++ ")
            and _SUPPRESS_RE.search(raw) for raw in
            diff_text.splitlines()):
         out.append(_finding(
@@ -374,6 +389,32 @@ def _suppression_findings(changed: set[str],
             "The diff adds a nosem/tfsec/trivy/checkov suppression "
             "marker — verify it is justified."))
     return out
+
+
+_KNOWN_TOOLS = frozenset({"semgrep", "gitleaks", "trivy"})
+
+
+def triggered(files: list[str]) -> bool:
+    """FR-O29 routing surface — True when any enabled tool would fire
+    on the PR's changed-file list. ``gitleaks`` scans every changed
+    file, so its presence activates the stage unconditionally.
+    """
+    enabled = config.SEC_TOOLS & _KNOWN_TOOLS
+    if not enabled or not files:
+        return False
+    if "gitleaks" in enabled:
+        return True
+    names = [Path(f).name.lower() for f in files]
+    if "semgrep" in enabled and (
+            any(Path(f).suffix.lower()
+                in (config.QA_CODE_EXTS | _GENERIC_EXTS) for f in files)
+            or any(_IAC_RE.search(f) for f in files)):
+        return True
+    if "trivy" in enabled and any(_IAC_RE.search(f) for f in files):
+        return True
+    if any(n in _SCANNER_IGNORE_FILES for n in names):
+        return True
+    return False
 
 
 def run_security_tools(repo: Path, files: list[str], diff_text: str,
@@ -385,7 +426,13 @@ def run_security_tools(repo: Path, files: list[str], diff_text: str,
     processes}`` for the agent to merge additively.
     """
     out: dict[str, Any] = {"findings": [], "pgids": [], "processes": []}
-    enabled = config.SEC_TOOLS
+    unknown = config.SEC_TOOLS - _KNOWN_TOOLS
+    if unknown:
+        out["findings"].append(_finding(
+            "info", "Unknown QG_SEC_TOOLS entries ignored",
+            f"{', '.join(sorted(unknown))} not in "
+            f"{', '.join(sorted(_KNOWN_TOOLS))}."))
+    enabled = config.SEC_TOOLS & _KNOWN_TOOLS
     # Only files that exist at the PR head are scannable.
     changed = {f for f in files if f and (repo / f).is_file()}
     if not enabled or not changed:

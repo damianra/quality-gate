@@ -693,6 +693,10 @@ def choose_agents(signals: dict[str, Any], files: list[dict[str, Any]]) -> list[
         or signals.get("new_dependencies")
         or signals.get("config_churn")
         or signals.get("prompt_injection")
+        # FR-O29: the vendored scanners have their own trigger surface
+        # (any changed file for gitleaks) — without this the toolchain
+        # would be dead code on signal-free diffs.
+        or sectools.triggered([f["filename"] for f in files])
     ):
         agents.append("security")
     # FR-L1: QA activates on code files only (QG_QA_CODE_EXTS); docs,
