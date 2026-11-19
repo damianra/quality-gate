@@ -98,6 +98,20 @@ def test_added_line_ranges_payload_lookalikes():
     assert r["c.py"] == {2, 3}
 
 
+def test_added_line_ranges_quoted_path():
+    # git C-quotes non-ASCII paths (core.quotePath): the header must be
+    # unquoted or the file's ranges silently drop (fail-open).
+    diff = (
+        'diff --git "a/fi\\303\\251le.py" "b/fi\\303\\251le.py"\n'
+        '--- "a/fi\\303\\251le.py"\n'
+        '+++ "b/fi\\303\\251le.py"\n'
+        "@@ -0,0 +1,1 @@\n"
+        "+secret\n"
+    )
+    r = sectools.added_line_ranges(diff)
+    assert r == {"fiéle.py": {1}}
+
+
 def test_triggers_only_with_matching_files(tmp_path):
     _touch(tmp_path, "app.py", "Dockerfile", "readme.md")
     calls = []

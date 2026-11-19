@@ -12,6 +12,7 @@ emitted into findings.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -108,6 +109,21 @@ def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
             pass
         elif in_header and raw.startswith("+++ "):
             target = raw[4:].strip()
+            # git C-quotes paths with non-ASCII/control chars
+            # (core.quotePath): '+++ "b/fi\303\251le.py"'. Unquote via
+            # literal_eval and re-decode the escaped bytes as UTF-8 —
+            # without this the b/ match fails and the file's added-line
+            # ranges are silently dropped (fail-open for gitleaks).
+            if len(target) >= 2 and target.startswith('"') \
+                    and target.endswith('"'):
+                try:
+                    unq = ast.literal_eval(target)
+                    if isinstance(unq, str):
+                        target = unq.encode(
+                            "latin-1", "replace").decode(
+                            "utf-8", "replace")
+                except (ValueError, SyntaxError):
+                    pass
             current = target[2:] if target.startswith("b/") else None
         elif raw.startswith(("GIT binary patch", "Binary files ")):
             binary = True
@@ -156,11 +172,15 @@ def _record_process(out: dict[str, Any], argv: list[str],
 def _tool_missing(name: str, res: dict[str, Any]) -> bool:
     """Binary absent either on host (127) or in the sandbox image.
 
-    Only stderr is checked — stdout is the scanner's report (untrusted
-    PR-influenced data) and grepping it would let a leak/semgrep line
-    containing "no such file" silently disable the whole tool.
+    Only stderr is consulted, and only on a failed run — stdout is the
+    scanner's report (untrusted PR-influenced data) and even stderr can
+    carry benign warnings like 'lstat: no such file' on a successful
+    scan, so the heuristic is gated on a non-zero exit.
     """
-    if res.get("exit_code") == 127:
+    code = res.get("exit_code", -1)
+    if code == 0:
+        return False
+    if code == 127:
         return True
     blob = str(res.get("stderr", "")).lower()
     return "no such file" in blob or "command not found" in blob
@@ -255,8 +275,9 @@ def _semgrep(repo: Path, files: list[str],
         sev = "warning" if str(
             extra.get("severity", "")).upper() == "ERROR" else "info"
         msg = str(extra.get("message") or hit.get("check_id", ""))[:160]
+        check_id = str(hit.get("check_id", "unknown"))[:80]
         findings.append(_finding(
-            sev, f"semgrep:{hit.get('check_id', 'unknown')}",
+            sev, f"semgrep:{check_id}",
             f"line {start.get('line', '?')}: {msg}",
             file=_repo_path(str(hit.get("path", ""))) or None))
     out["findings"] += _cap(findings, "semgrep")
@@ -283,6 +304,9 @@ def _gitleaks(repo: Path, changed: set[str],
             "JSON."))
         return
     if not isinstance(entries, list):
+        out["findings"].append(_finding(
+            "info", "gitleaks output unusable",
+            "gitleaks produced valid JSON of an unexpected shape."))
         entries = []
     findings: list[dict[str, Any]] = []
     for e in entries:
@@ -359,9 +383,11 @@ def _trivy(repo: Path, iac_files: list[str],
                 line = meta.get("StartLine") if isinstance(meta, dict) \
                     else None
                 loc = f"line {line}: " if line else ""
+                mc_id = str(mc.get("ID") or mc.get("AVDID")
+                            or "misconfig")[:80]
                 findings.append(_finding(
                     mapped,
-                    f"trivy:{mc.get('ID') or mc.get('AVDID') or 'misconfig'}",
+                    f"trivy:{mc_id}",
                     f"{loc}{str(mc.get('Title') or '')[:140]}",
                     file=target))
     out["findings"] += _cap(findings, "trivy")
@@ -379,9 +405,11 @@ def _suppression_findings(changed: set[str],
                 f"`{f}` can suppress gitleaks/semgrep/trivy hits — "
                 "review its contents.", file=f))
     # Added lines only — removing or merely touching a suppression
-    # marker in context must not warn. Only the '+++ ' file header is
-    # excluded: '+++x' inside a hunk is an added payload line.
-    if any(raw.startswith("+") and not raw.startswith("+++ ")
+    # marker in context must not warn. Only true file headers
+    # ('+++ b/…' / '+++ /dev/null') are excluded; a payload line like
+    # '+++ # nosem' still counts.
+    header = re.compile(r"\+\+\+ (?:b/|/dev/null)")
+    if any(raw.startswith("+") and not header.match(raw)
            and _SUPPRESS_RE.search(raw) for raw in
            diff_text.splitlines()):
         out.append(_finding(
