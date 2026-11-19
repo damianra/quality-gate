@@ -523,7 +523,8 @@ duration lands in `node_durations`.
   left by crashed runs — INV-2 extension: containers are cleaned like
   pgids and worktree dirs. The image is `qg-sandbox`
   (`QG_SANDBOX_IMAGE`), an OCI image built from the repo root with the
-  validation toolchains preinstalled (python+uv, node, osv-scanner);
+  validation toolchains preinstalled (python+uv, node, osv-scanner;
+  FR-O29 adds semgrep, gitleaks and trivy plus the vendored ruleset);
   a missing image degrades to an info note, never blocks the run.
 
   The **functional stage** runs inside the sandbox after structural
@@ -554,6 +555,43 @@ duration lands in `node_durations`.
   sentinels — test output can carry prompt injection like any PR
   content. Sandbox-derived findings keep additive-only semantics
   (FR-O25): they can add findings, never remove or set the verdict.
+- **FR-O29 Security scanning toolchain.** A second deterministic stage
+  in the SecurityAgent runs external security scanners inside the
+  FR-O28 sandbox — same isolation contract, same consumer mechanics
+  (`_run_pr_command`, `processes` metrics, pgid registration). The
+  toolset is vendored into the `qg-sandbox` image at build time, so
+  scanners run under `--network none` — a missing binary degrades to
+  an info note, never a run failure. `QG_SEC_TOOLS` selects the
+  enabled set (default `semgrep,gitleaks,trivy`, comma-separated);
+  every tool is trigger-gated so it only runs when the diff justifies
+  it, emits at most `QG_SEC_MAX_FINDINGS` findings (default 10), and
+  is bounded by `QG_SEC_TOOL_TIMEOUT` (default 120 s).
+  - **SAST — semgrep**: triggered when the diff adds code files;
+    `semgrep scan --config /opt/qg-rules --json --metrics off` over
+    the changed code files (capped list). The ruleset is vendored at
+    `/opt/qg-rules` in the image — no registry egress needed.
+    Findings map `ERROR`→warning, `WARNING`/`INFO`→info (SAST false
+    positives must not hard-block), each carrying check_id, file,
+    line and a truncated message.
+  - **Secrets — gitleaks**: `gitleaks dir` over the changed files;
+    only findings on lines the PR *adds* are kept (added-line ranges
+    parsed from the unified diff) — pre-existing secrets in
+    untouched code do not fire. A hit is a **blocker** matching the
+    `secret_candidates` policy, downgraded to warning in test paths
+    (`_TEST_PATH_RE`); the detail shows a redacted prefix +
+    rule id, never the matched secret text.
+  - **IaC — trivy config**: triggered when the diff touches the IaC
+    subset of the sensitive-config watchlist (`Dockerfile*`,
+    `docker-compose*.y*ml`, `compose.y*ml`, `.github/workflows/*`)
+    extended with `deploy/*` and `*.tf`; `trivy config
+    --format json` uses the built-in defsec policies (offline, no
+    vuln DB needed). `CRITICAL`/`HIGH`→warning, the rest→info.
+
+  Scanner output is untrusted data (FR-O25) and feeds findings
+  additively. These tools are *evidence generators*: they extend what
+  is provably wrong to what is provably suspicious; the LLM pass may
+  contextualize or escalate a tool finding with cited evidence
+  (FR-O27) but can never remove or downgrade it.
 
 ## 5. Non-functional requirements
 
@@ -660,7 +698,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28) |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28), `QG_SEC_TOOLS`, `QG_SEC_TOOL_TIMEOUT`, `QG_SEC_MAX_FINDINGS` (FR-O29) |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
@@ -678,7 +716,9 @@ All via env vars; `.env.example` is the canonical template.
   `uv sync --no-dev --package <pkg>`, non-root `appuser` (uid 10001).
   `qg-sandbox` (FR-O28) is an additional execution image with the
   validation toolchains — it runs PR-controlled code, never the
-  orchestrator itself.
+  orchestrator itself. It also vendors the FR-O29 scanners (semgrep,
+  gitleaks, trivy) plus the curated semgrep ruleset at
+  `/opt/qg-rules`.
 - **Compose:** `postgres` (healthchecked), `mcp-server` (SSE :8000),
   `orchestrator` (depends on postgres, mounts `REPO_UNDER_TEST` → `/work`
   read-write for `tsc` caches). Service mode adds `ingress` (uvicorn,
@@ -791,6 +831,7 @@ volatile during early history edits; commits are identified by subject):
 | 83 | `docs`: bilingual project overview + flow diagrams |
 | 84 | `docs`: FR-O28 sandboxed execution + functional validation |
 | 85 | `feat(orchestrator)`: FR-O28 sandboxed execution + functional stage |
+| 86 | `docs`: FR-O29 security scanning toolchain |
 
 ## 11. Extension points (SDD backlog)
 
