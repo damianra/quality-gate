@@ -613,18 +613,18 @@ duration lands in `node_durations`.
   repo-controlled input the tools would otherwise auto-load, and
   bounds the stage's wall-clock cost:
   - **Config pinning** (each mechanism verified against the pinned
-    binaries): gitleaks resolves `.gitleaksignore` against its
-    *working directory* — not the scan target — so it is spawned
-    with cwd outside the worktree and the repo path as an absolute
-    target (the FR-O28 runner gains an optional `workdir` knob).
-    `--gitleaks-ignore-path` is NOT passed — it is additive, and
-    pointing it at the repo's file would re-enable the suppression.
-    It also
+    binaries): gitleaks resolves `.gitleaksignore` against the scan
+    *target root* — not cwd — and `--gitleaks-ignore-path` is
+    additive-only, so no flag can disarm a repo-controlled ignore
+    file. The definitive control is a read-only `/dev/null` mount
+    overlaid on `/src/.gitleaksignore` (the FR-O28 runner and
+    `container_argv` gain a `mask` knob; the host fallback cannot
+    mask — the counter-scan still surfaces the file). It also
     runs with `--ignore-gitleaks-allow` (inline allows disabled)
     and `-c` a vendored config that `[extend]`s the embedded
     default rules — a repo `.gitleaks.toml` is auto-loaded over
     the defaults, so pinning `-c` blocks a ruleset swap. Trivy
-    resolves `trivy.yaml` against its working directory too —
+    resolves `trivy.yaml` against its working directory —
     the `-c` flag does NOT reliably override it (verified: the
     repo config still applies under `-c /dev/null`) — so the
     same outside-cwd spawn neutralizes it, and `--ignorefile ""`
@@ -962,7 +962,8 @@ an enterprise-grade review platform. Each FR is independently scoped;
 the ordering composes: measure first, surface second, then widen
 coverage under measurement, then governance and isolation.
 
-- **FR-O31 Review-quality benchmark (golden set).** A corpus of
+- **FR-O31 Review-quality benchmark (golden set).** *(implemented —
+  `bench/`)* A corpus of
   synthetic PRs with known planted defects plus real historical cases
   lives under `bench/cases/*.yaml` (diff, repo fixture, expected
   findings by rule/severity, tags). An offline harness injects the

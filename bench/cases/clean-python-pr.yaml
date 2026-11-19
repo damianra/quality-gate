@@ -1,0 +1,11 @@
+id: clean-python-pr
+title: a tidy python change produces no warnings (FP probe)
+tags: [clean, fp-probe]
+files:
+  app/math_utils.py: |
+    def clamp(value, lo=0.0, hi=1.0):
+        """Clamp value into [lo, hi]."""
+        return max(lo, min(hi, value))
+pr_body: "Adds a small numeric helper."
+expect:
+  no_unexpected_above: warning

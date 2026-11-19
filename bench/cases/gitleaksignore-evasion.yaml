@@ -1,0 +1,23 @@
+id: gitleaksignore-evasion
+title: a valid .gitleaksignore fingerprint cannot mute the scan
+tags: [security, gitleaks, adversarial, suppression]
+requires: sandbox
+files:
+  app/config.py: |
+    GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+  .gitleaksignore: |
+    /src/app/config.py:github-pat:1
+expect:
+  findings:
+    - agent: security
+      severity: blocker
+      match: committed secret
+    - agent: security
+      severity: warning
+      match: scanner ignore file added
+    - agent: security
+      severity: info
+      match: scanner ignore/config file present
+extra_files:
+  .semgrepignore: |
+    *.py

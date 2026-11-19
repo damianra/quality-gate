@@ -1,0 +1,28 @@
+id: trivy-suppressed-config
+title: repo-shipped trivy.yaml cannot mute trivy (adversarial)
+tags: [security, trivy, adversarial, suppression]
+requires: sandbox
+files:
+  Dockerfile: |
+    FROM ubuntu:22.04
+    CMD ["python", "/app/server.py"]
+  trivy.yaml: |
+    misconfiguration:
+      checks:
+        ids:
+          - DS-0002
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: "trivy:"
+    - agent: security
+      severity: warning
+      match: scanner ignore file added
+    - agent: security
+      severity: info
+      match: scanner ignore/config file present
+extra_files:
+  .trivyignore: |
+    misconfigurations:
+      - id: DS-0002

@@ -158,9 +158,15 @@ validators, the dependency audit and the functional stage:
   missing tools degrade to info notes. Scanner-suppression files or
   `nosem`/`tfsec:ignore`-style directives added by the PR warn.
   FR-O30 pins every repo-controlled input — gitleaks/trivy spawn with
-  cwd outside the tree (repo `.gitleaksignore`/`trivy.yaml` never
-  load), a counter-scan enumerates live suppression surfaces as info,
-  and the three tools run concurrently.
+  cwd outside the tree (repo `trivy.yaml` never loads), the repo's
+  `.gitleaksignore` is masked by a `/dev/null` mount, a counter-scan
+  enumerates live suppression surfaces as info, and the three tools
+  run concurrently.
+
+- **Golden-set benchmark (FR-O31)** — `bench/` replays a corpus of
+  synthetic PRs (detection + adversarial + false-positive cases)
+  through the real deterministic stages and reports per-tag detection
+  and unexpected findings; see `bench/README.md`.
 
 ## Environment variables
 

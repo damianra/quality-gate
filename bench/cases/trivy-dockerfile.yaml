@@ -1,0 +1,15 @@
+id: trivy-dockerfile
+title: trivy flags a root-running Dockerfile
+tags: [security, trivy, iac]
+requires: sandbox
+files:
+  Dockerfile: |
+    FROM ubuntu:22.04
+    RUN apt-get update && apt-get install -y curl
+    COPY . /app
+    CMD ["python", "/app/server.py"]
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: "trivy:"

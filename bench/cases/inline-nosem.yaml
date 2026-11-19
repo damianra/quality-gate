@@ -1,0 +1,16 @@
+id: inline-nosem
+title: inline # nosem cannot hide eval() (adversarial)
+tags: [security, semgrep, adversarial, suppression]
+requires: sandbox
+files:
+  app/hooks.py: |
+    def dynamic(expr):
+        return eval(expr)  # nosem
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: python-eval-exec
+    - agent: security
+      severity: warning
+      match: scanner suppression directive added
