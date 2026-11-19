@@ -909,6 +909,8 @@ volatile during early history edits; commits are identified by subject):
 | 87 | `feat(orchestrator)`: FR-O29 semgrep/gitleaks/trivy in sandbox |
 | 88 | `docs`: FR-O30 scanner hardening + efficiency |
 | 89 | `feat(orchestrator)`: FR-O30 scanner config pinning, counter-scan, single-spawn trivy + parallel stage |
+| 90 | `docs`: quality & enterprise roadmap (FR-O31..O35) |
+| 91 | `feat`: FR-O31 golden-set benchmark harness + initial corpus |
 
 ## 11. Extension points (SDD backlog)
 
@@ -952,6 +954,72 @@ implementing:
   storage-driver advisory.
 - **Monorepo split** — `git subtree split --prefix=packages/<pkg>` is the
   documented exit path.
+
+### 11.1 Quality & enterprise roadmap
+
+Ordered backlog for taking the gate from a strong self-hosted tool to
+an enterprise-grade review platform. Each FR is independently scoped;
+the ordering composes: measure first, surface second, then widen
+coverage under measurement, then governance and isolation.
+
+- **FR-O31 Review-quality benchmark (golden set).** A corpus of
+  synthetic PRs with known planted defects plus real historical cases
+  lives under `bench/cases/*.yaml` (diff, repo fixture, expected
+  findings by rule/severity, tags). An offline harness injects the
+  case state directly into the deterministic stages — `analyze_diff`
+  signals, sectools scanners, QA/functional where cheap — never the
+  LLM specialists by default (non-deterministic), with an opt-in flag
+  for LLM-included runs. "Offline" means no network egress — the
+  sandbox path still requires podman/docker plus the `qg-sandbox`
+  image in the CI job. Output is a JSON + markdown report with
+  per-category detection rate and false-positive rate on clean
+  cases; an adversarial subset replays the suppression/evasion
+  attacks FR-O29/FR-O30 defend against. Runs in a periodic CI job,
+  not per-PR.
+- **FR-O32 SARIF output.** Findings convert to SARIF 2.1.0 `runs`
+  (one per agent — the §6.3 schema has no tool discriminator
+  unless one is added) via a small `sarif.py` module; the finding
+  schema (§6.3) gains an explicit `line` field (today it lives
+  inside `detail` text). Upload through
+  `codeql-action/upload-sarif` in `pr-review.yml` and/or an API path
+  for self-hosted deployments — findings become PR line annotations
+  and Security-tab entries. The `info|warning|blocker` →
+  `none|note|warning|error` level map is decided at implementation
+  time. Note: GitHub code scanning needs GitHub Advanced Security
+  on private repos (free on public) — the SARIF file itself is the
+  portable artifact for any SARIF-aware consumer.
+- **FR-O33 Curated SAST ruleset expansion.** `qg-rules/` grows from
+  the 12-rule seed to ~50–100 high-signal rules across the
+  supported languages,
+  ported from bandit (Python), gosec (Go) and NodeJSscan/
+  eslint-security (JS/TS) — vendored, never registry egress. Rule
+  ports are original rewrites, not copies: the vendored ruleset
+  ships inside the distributed image, so per-source license
+  compatibility must be recorded per rule family (bandit/gosec are
+  Apache-2.0; NodeJSScan is GPL-3.0 and ports must be clean-room).
+  Every new rule requires a benchmark case proving its detection
+  and a measured FP cost; the image build validates the ruleset
+  offline so a broken rule fails the build, not reviews.
+- **FR-O34 Data governance + prompt redaction.** `QG_LLM_PROVIDER`,
+  `QG_LLM_BASE_URL`, `QG_LLM_MODEL` and role-scoped
+  `QG_LLM_*_<ROLE>` overrides already exist (FR-O13/O15), including
+  Ollama and arbitrary OpenAI-compatible endpoints — the net-new
+  work is governance. A pre-prompt redaction pass runs a secret
+  detector over the strings bound for the provider (the existing
+  scanner reports only one-way fingerprints, so redaction needs a
+  separate detection step at prompt-build time); a data-handling
+  doc states what leaves the host, which endpoints are reachable
+  and how to disable LLM egress entirely.
+- **FR-O35 Kernel-level sandbox isolation.** `QG_SANDBOX` gains a
+  `runsc`/`gvisor` value (extending the existing selector rather
+  than adding a second one) that passes `--runtime=runsc` through
+  the podman/docker engine — gVisor replaces runc/crun, not the
+  engine. A custom seccomp profile is evaluated at implementation
+  time — under gVisor the syscall surface is already mediated by
+  the sentry, so its marginal value is likely small — plus a
+  documented threat model (what class of hostile PR code the
+  stage tolerates executing). The full test suite must pass inside gVisor before
+  the option is advertised.
 
 ## 12. Contribution conventions (normative)
 
