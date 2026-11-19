@@ -163,7 +163,11 @@ funcional:
   y tope de findings vía `QG_SEC_TOOLS`/`QG_SEC_TOOL_TIMEOUT`/
   `QG_SEC_MAX_FINDINGS`; herramientas ausentes degradan a notas info.
   Archivos de supresión de scanners o directivas tipo `nosem`/
-  `tfsec:ignore` agregadas por el PR advierten.
+  `tfsec:ignore` agregadas por el PR advierten. FR-O30 fija cada
+  input controlado por el repo — gitleaks/trivy corren con cwd fuera
+  del árbol (el `.gitleaksignore`/`trivy.yaml` del repo nunca carga),
+  un counter-scan enumera las superficies de supresión activas como
+  info, y las tres herramientas corren de forma concurrente.
 
 ## Variables de entorno
 

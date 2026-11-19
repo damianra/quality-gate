@@ -810,15 +810,28 @@ def _is_dep_manifest(path: str) -> bool:
 
 
 def _run_pr_command(repo: Path, argv: list[str], timeout: int,
-                    *, net: bool = False) -> dict[str, Any]:
+                    *, net: bool = False,
+                    outside: bool = False) -> dict[str, Any]:
     """Run a PR-controlled command through the FR-O28 sandbox when
     usable, else host ``spawn_process``. Same return dict either way —
-    ``sandboxed`` flags which path ran."""
+    ``sandboxed`` flags which path ran.
+
+    ``outside=True`` runs with cwd outside the worktree (``/tmp`` in
+    the sandbox, the system temp dir on host): gitleaks/trivy resolve
+    ignore and config files against their *cwd*, so a repo-controlled
+    ``.gitleaksignore``/``trivy.yaml`` never becomes the default
+    (FR-O30)."""
     if sandbox.available():
-        res = sandbox.run(repo, argv, timeout, net=net)
+        res = sandbox.run(repo, argv, timeout, net=net,
+                          workdir="/tmp" if outside else "/src")
     else:
+        # /tmp is literal on purpose — tempfile.gettempdir() honors
+        # TMPDIR, which could point back inside the worktree and void
+        # the pinning (operator env, but the pin should not depend on
+        # it).
+        cwd = "/tmp" if outside else str(repo)
         res = mcp_tools.spawn_process(
-            str(repo), argv[0], argv[1:], timeout=timeout)
+            cwd, argv[0], argv[1:], timeout=timeout)
         res["sandboxed"] = False
     return res
 
