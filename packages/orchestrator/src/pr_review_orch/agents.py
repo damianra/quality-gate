@@ -811,19 +811,26 @@ def _is_dep_manifest(path: str) -> bool:
 
 def _run_pr_command(repo: Path, argv: list[str], timeout: int,
                     *, net: bool = False,
-                    outside: bool = False) -> dict[str, Any]:
+                    outside: bool = False,
+                    mask: list[str] | None = None) -> dict[str, Any]:
     """Run a PR-controlled command through the FR-O28 sandbox when
     usable, else host ``spawn_process``. Same return dict either way —
     ``sandboxed`` flags which path ran.
 
     ``outside=True`` runs with cwd outside the worktree (``/tmp`` in
-    the sandbox, the system temp dir on host): gitleaks/trivy resolve
-    ignore and config files against their *cwd*, so a repo-controlled
-    ``.gitleaksignore``/``trivy.yaml`` never becomes the default
-    (FR-O30)."""
+    the sandbox, the system temp dir on host): trivy resolves its
+    ``trivy.yaml`` against *cwd*, so a repo-controlled file never
+    becomes the default (FR-O30).
+
+    ``mask`` overlays repo-relative paths with ``/dev/null`` inside the
+    container — for suppression surfaces the tool resolves against the
+    scan target and no flag can disable (gitleaks' `.gitleaksignore`;
+    its ``-i`` is additive). The host fallback cannot mask — the
+    counter-scan still reports those surfaces."""
     if sandbox.available():
         res = sandbox.run(repo, argv, timeout, net=net,
-                          workdir="/tmp" if outside else "/src")
+                          workdir="/tmp" if outside else "/src",
+                          mask=mask)
     else:
         # /tmp is literal on purpose — tempfile.gettempdir() honors
         # TMPDIR, which could point back inside the worktree and void
@@ -1157,15 +1164,24 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
     """
     cmds: list[tuple[list[str], bool]] = []
     suffixes = {Path(f).suffix.lower() for f in files}
+    # Validators run wherever _run_pr_command will place them — probe
+    # that environment's PATH, not always the host's (the image ships
+    # python3; a host binary is not mounted into the container).
+    sandboxed = sandbox.available()
+
+    def on_path(name: str) -> bool:
+        return (sandbox.tool_available(repo, name) if sandboxed
+                else shutil.which(name) is not None)
 
     # JS/TS: project-local tsc wins; otherwise per-file node --check.
     local_tsc = repo / "node_modules" / ".bin" / "tsc"
-    if local_tsc.exists() and (repo / "tsconfig.json").exists():
+    if local_tsc.exists() and (repo / "tsconfig.json").exists() \
+            and on_path("node"):
         # Repo-relative argv: the absolute host path means nothing
         # inside the FR-O28 sandbox, and the host fallback runs with
         # cwd=repo so the relative path resolves there too.
         cmds.append((["node_modules/.bin/tsc", "--noEmit"], False))
-    elif shutil.which("node"):
+    elif on_path("node"):
         js_exts = {".js", ".jsx", ".mjs", ".cjs"}
         js_files = [
             f for f in files
@@ -1181,14 +1197,21 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
         f for f in files
         if Path(f).suffix.lower() == ".py" and (repo / f).exists()
     ][:20]
-    python = shutil.which("python3") or shutil.which("python")
-    if py_files and python:
+    python = None
+    if py_files:
+        if sandboxed:
+            # The image ships python3 — emit it regardless of host PATH.
+            python = "python3" if on_path("python3") else None
+        else:
+            found = shutil.which("python3") or shutil.which("python")
+            python = Path(found).name if found else None
+    if python:
         # Bare executable name, not the resolved host path: an
         # absolute like /usr/bin/python3 does not exist inside the
         # sandbox container — the bare name resolves via PATH in
         # both modes (the image ships python3).
         cmds.append(([
-            Path(python).name, "-c",
+            python, "-c",
             "import sys\n"
             "for f in sys.argv[1:]:\n"
             "    with open(f) as fh:\n"
@@ -1199,10 +1222,10 @@ def _qa_commands(repo: Path, files: list[str]) -> list[tuple[list[str], bool]]:
     # Go/Rust: module-level check when the manifest sits at the root.
     # These EXECUTE PR-controlled code (build.rs, proc-macros, cgo).
     if ".go" in suffixes and (repo / "go.mod").exists() \
-            and shutil.which("go"):
+            and on_path("go"):
         cmds.append((["go", "vet", "./..."], True))
     if ".rs" in suffixes and (repo / "Cargo.toml").exists() \
-            and shutil.which("cargo"):
+            and on_path("cargo"):
         cmds.append((["cargo", "check"], True))
     return cmds
 

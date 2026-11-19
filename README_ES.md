@@ -165,7 +165,8 @@ funcional:
   Archivos de supresión de scanners o directivas tipo `nosem`/
   `tfsec:ignore` agregadas por el PR advierten. FR-O30 fija cada
   input controlado por el repo — gitleaks/trivy corren con cwd fuera
-  del árbol (el `.gitleaksignore`/`trivy.yaml` del repo nunca carga),
+  del árbol (el `trivy.yaml` del repo nunca carga), el `.gitleaksignore`
+  del repo queda enmascarado por un mount de `/dev/null`,
   un counter-scan enumera las superficies de supresión activas como
   info, y las tres herramientas corren de forma concurrente.
 

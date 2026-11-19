@@ -98,6 +98,24 @@ def available() -> bool:
     return rt is not None and _image_present(rt)
 
 
+#: Cache for image toolchain probes — the image is fixed for a run, so
+#: `command -v` results don't change between calls.
+_tool_cache: dict[str, bool] = {}
+
+
+def tool_available(repo: Path | str, name: str) -> bool:
+    """True when ``name`` resolves inside the sandbox image.
+
+    Validator selection must probe the environment that will actually
+    run the command: the host's PATH says nothing about image contents
+    (a host ``/usr/bin/python3`` is not mounted into the container).
+    """
+    if name not in _tool_cache:
+        res = run(repo, ["sh", "-c", f"command -v {name}"], 15)
+        _tool_cache[name] = res.get("exit_code") == 0
+    return _tool_cache[name]
+
+
 #: Credential markers — a forwarded name containing any of these
 #: (case-insensitive) is denied, even when its prefix is allowlisted.
 #: Substring match because credential var names are irregular:
@@ -159,8 +177,17 @@ def _mount_args(rt: str, repo: Path) -> list[str]:
 
 def container_argv(repo: Path, argv: list[str], *, name: str,
                    net: bool, rt: str,
-                   workdir: str = "/src") -> list[str]:
-    """Full ``container run`` argv implementing the FR-O28 contract."""
+                   workdir: str = "/src",
+                   mask: list[str] | None = None) -> list[str]:
+    """Full ``container run`` argv implementing the FR-O28 contract.
+
+    ``mask`` lists repo-relative paths overlaid with a read-only
+    ``/dev/null`` mount — the definitive way to stop a tool from
+    reading a repo-controlled file it resolves against the scan
+    target rather than a flag (FR-O30 gitleaks `.gitleaksignore`;
+    ``-i`` is additive and cannot remove it). Mounting over an absent
+    path just exposes an empty file, so masks are safe unconditionally.
+    """
     args = [
         rt, "run", "--rm",
         "--init",  # proper PID 1 — reaps zombies reparented by PR code
@@ -173,6 +200,8 @@ def container_argv(repo: Path, argv: list[str], *, name: str,
         "--cpus", config.SANDBOX_CPUS,
         "--pids-limit", config.SANDBOX_PIDS,
         *_mount_args(rt, repo),
+        *[a for rel in (mask or ())
+          for a in ("-v", f"/dev/null:/src/{rel}:ro")],
         *_env_args(_env_spec()),
     ]
     for k, v in _RO_REDIRECTS.items():
@@ -190,13 +219,15 @@ def _kill_container(rt: str, name: str) -> None:
 
 
 def run(repo: Path | str, argv: list[str], timeout: int | None = None,
-        *, net: bool = False, workdir: str = "/src") -> dict[str, Any]:
+        *, net: bool = False, workdir: str = "/src",
+        mask: list[str] | None = None) -> dict[str, Any]:
     """Run ``argv`` inside the sandbox over ``repo``.
 
     ``workdir`` is the in-container cwd; callers pass an outside-tree
     dir (``/tmp``) when a tool resolves config/ignore files against its
     cwd — a repo-controlled file must never be the effective default
-    (FR-O30).
+    (FR-O30). ``mask`` overlays repo-relative paths with ``/dev/null``
+    for suppression surfaces no flag can disable (see container_argv).
 
     Returns the ``spawn_process`` dict plus ``sandboxed``/``container``
     keys. The host-side client process group is pgid-tracked as usual;
@@ -209,7 +240,7 @@ def run(repo: Path | str, argv: list[str], timeout: int | None = None,
     repo = Path(repo)
     name = f"qg-{os.getpid()}-{next(_seq)}"
     cargv = container_argv(repo, argv, name=name, net=net, rt=rt,
-                           workdir=workdir)
+                           workdir=workdir, mask=mask)
     res = git_ops.spawn_tracked(
         str(repo), cargv[0], cargv[1:], timeout=timeout,
         env=_client_env(_env_spec()))

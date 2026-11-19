@@ -82,6 +82,14 @@ def synth_diff(files: dict[str, str]) -> str:
     hunks = []
     for name, content in files.items():
         lines = content.splitlines()
+        if not lines:
+            # Empty file: a well-formed hunk is +0,0 (1,0 is malformed).
+            hunks.append(
+                f"diff --git a/{name} b/{name}\n"
+                "new file mode 100644\n"
+                "--- /dev/null\n"
+                f"+++ b/{name}")
+            continue
         body = "\n".join("+" + ln for ln in lines)
         hunks.append(
             f"diff --git a/{name} b/{name}\n"
@@ -119,19 +127,43 @@ def _scrub_llm_env():
         os.environ.update(saved)
 
 
-def _specialists(state: dict[str, Any]) -> list[dict[str, Any]]:
+def _specialists(state: dict[str, Any]) -> tuple[
+        list[dict[str, Any]], list[int]]:
     """Run the real specialist nodes; a crashing node degrades to an
-    error note instead of killing the case (same additive contract)."""
+    error note instead of killing the case (same additive contract).
+    Returns ``(findings, pgids)`` — the bench has no cleanup node, so
+    the caller must reap spawned groups."""
     findings: list[dict[str, Any]] = []
+    pgids: list[int] = []
     for name in ("review", "security", "qa"):
         try:
             fn = getattr(agents, f"{name}_specialist")
-            findings += fn(state).get("findings", [])
+            out = fn(state)
+            findings += out.get("findings", [])
+            pgids += out.get("active_pgids", [])
         except Exception as exc:  # noqa: BLE001 - report, don't die
             findings.append({"agent": name, "severity": "blocker",
                              "title": f"Specialist crashed: {exc!r}",
                              "detail": "", "file": ""})
-    return findings
+    return findings, pgids
+
+
+def _reap(pgids: list[int]) -> None:
+    """Best-effort killpg for stragglers — the bench runs without the
+    graph's cleanup node."""
+    import signal
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+def _valid_fixture_name(name: str) -> bool:
+    """Fixture paths must stay inside the tmpdir — reject absolute
+    paths and upward traversal (the corpus replays authored data)."""
+    p = Path(name)
+    return not p.is_absolute() and ".." not in p.parts
 
 
 def evaluate_case(case: dict[str, Any], *, include_llm: bool,
@@ -151,41 +183,70 @@ def evaluate_case(case: dict[str, Any], *, include_llm: bool,
         return result
 
     t0 = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix=f"qg-bench-{cid}-") as td:
-        # TemporaryDirectory is 0700 — the sandbox's non-root user could
-        # not traverse the mount; real worktrees are 0755.
-        os.chmod(td, 0o755)
-        repo = Path(td)
-        files = case.get("files") or {}
-        for name, content in {**files,
-                              **(case.get("extra_files") or {})}.items():
-            p = repo / name
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-        diff_text = case.get("diff_text") or synth_diff(files)
-        pr_body = case.get("pr_body", "")
+    pgids: list[int] = []
+    try:
+        expect = case.get("expect")
+        if not isinstance(expect, dict) or not (
+                expect.get("findings") is not None
+                or expect.get("signals") is not None
+                or expect.get("no_unexpected_above") is not None):
+            result["missing"].append(
+                "schema: case has no usable 'expect' block "
+                "(a case must assert something — vacuous pass is "
+                "not allowed)")
+            return result
 
-        run = _specialists
-        try:
-            signals = mcp_tools.analyze_diff(diff_text, pr_body, str(repo))
+        files = case.get("files") or {}
+        tree = {**files, **(case.get("extra_files") or {})}
+        if not isinstance(tree, dict) or any(
+                not _valid_fixture_name(n) or not isinstance(c, str)
+                for n, c in tree.items()):
+            result["missing"].append(
+                "schema: files/extra_files must be a map of "
+                "repo-relative paths to string content (no absolute "
+                "paths or '..')")
+            return result
+
+        with tempfile.TemporaryDirectory(
+                prefix=f"qg-bench-{cid}-") as td:
+            # TemporaryDirectory is 0700 — the sandbox's non-root user
+            # could not traverse the mount; real worktrees are 0755.
+            os.chmod(td, 0o755)
+            repo = Path(td)
+            for name, content in tree.items():
+                p = repo / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content, encoding="utf-8")
+            diff_text = case.get("diff_text") or synth_diff(files)
+            pr_body = case.get("pr_body", "")
+
+            signals = mcp_tools.analyze_diff(
+                diff_text, pr_body, str(repo))
             signals["diff_text"] = diff_text
             state = {
                 "repo_path": str(repo),
                 "files": [{"filename": f} for f in files],
                 "signals": signals,
             }
-            findings = run(state)
-        except Exception as exc:  # noqa: BLE001
-            result["missing"].append(f"harness error: {exc!r}")
-            result["duration_s"] = time.monotonic() - t0
-            return result
+            all_findings, pgids = _specialists(state)
+    except Exception as exc:  # noqa: BLE001
+        result["missing"].append(f"harness error: {exc!r}")
+        result["duration_s"] = time.monotonic() - t0
+        return result
+    finally:
+        _reap(pgids)
 
     result["duration_s"] = time.monotonic() - t0
+    # LLM-sourced findings are observational only — pass/fail evaluates
+    # deterministic evidence exclusively (LLM titles carry the "LLM: "
+    # prefix; see agents._llm_findings).
+    findings = [f for f in all_findings
+                if not str(f.get("title", "")).startswith("LLM: ")]
+    result["llm_findings"] = len(all_findings) - len(findings)
     result["findings"] = [
         {k: f.get(k) for k in ("agent", "severity", "title", "file")}
         for f in findings]
 
-    expect = case.get("expect") or {}
     for sig in expect.get("signals", []):
         if not signals.get(sig):
             result["missing_signals"].append(sig)
@@ -265,7 +326,8 @@ def main(argv: list[str] | None = None) -> int:
                          "provider enriches findings (non-deterministic)")
     ap.add_argument("-j", "--jobs", type=int, default=4,
                     help="cases to evaluate in parallel (default 4); "
-                         "each case owns its tmpdir and pgids")
+                         "each case owns its tmpdir; spawned process "
+                         "groups are reaped after the case")
     args = ap.parse_args(argv)
 
     cases = sorted(_CASES_DIR.glob("*.yaml"))
@@ -273,8 +335,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no cases under {_CASES_DIR}", file=sys.stderr)
         return 2
     sandbox_ok = sandbox.available()
-    selected = [
-        yaml.safe_load(p.read_text(encoding="utf-8")) for p in cases]
+    selected = []
+    for p in cases:
+        case = yaml.safe_load(p.read_text(encoding="utf-8"))
+        if not isinstance(case, dict) or not case.get("id"):
+            selected.append({"id": p.stem, "title": p.name,
+                             "expect": None})  # fails schema check
+            continue
+        selected.append(case)
     if args.case:
         selected = [c for c in selected if c.get("id") == args.case]
     # Scrub once for the whole run — parallel cases make per-case

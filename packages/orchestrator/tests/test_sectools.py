@@ -24,10 +24,12 @@ def _runner(*responses):
     {"tool": name, "res": result} or {"_argv": fn, "res": result}."""
     calls = []
     outsides = []
+    masks = []
 
-    def run(repo, argv, timeout, *, outside=False):
+    def run(repo, argv, timeout, *, outside=False, mask=None):
         calls.append(list(argv))
         outsides.append(outside)
+        masks.append(mask)
         tool = argv[0]
         for i, spec in enumerate(responses):
             match = spec.get("_argv") if isinstance(spec, dict) else None
@@ -38,6 +40,7 @@ def _runner(*responses):
         return _res(exit_code=127, stderr=f"{tool}: command not found")
     run.calls = calls
     run.outsides = outsides
+    run.masks = masks
     return run
 
 
@@ -120,7 +123,7 @@ def test_triggers_only_with_matching_files(tmp_path):
     _touch(tmp_path, "app.py", "Dockerfile", "readme.md")
     calls = []
 
-    def run(repo, argv, timeout, *, outside=False):
+    def run(repo, argv, timeout, *, outside=False, mask=None):
         calls.append(argv[0])
         return _res(stdout="{}" if argv[0] == "semgrep" else "[]")
     sectools.run_security_tools(
@@ -259,7 +262,7 @@ def test_trivy_single_spawn_target_filter(tmp_path):
         ]},
     ]}
 
-    def run(repo, argv, timeout, *, outside=False):
+    def run(repo, argv, timeout, *, outside=False, mask=None):
         if argv[0] == "trivy":
             calls.append(argv)
             return _res(json.dumps(doc))
@@ -279,7 +282,8 @@ def test_trivy_single_spawn_target_filter(tmp_path):
 
 def test_scanners_pinned_against_repo_configs(tmp_path):
     # FR-O30 config pinning: gitleaks/trivy spawn outside the worktree
-    # (cwd-resolved .gitleaksignore/trivy.yaml never load); gitleaks
+    # (cwd-resolved trivy.yaml never loads; gitleaks' .gitleaksignore
+    # is target-resolved so it is /dev/null-masked instead); gitleaks
     # gets --ignore-gitleaks-allow + vendored -c; semgrep gets
     # --no-git-ignore + --jobs.
     _touch(tmp_path, "Dockerfile", "app.py")
@@ -298,6 +302,10 @@ def test_scanners_pinned_against_repo_configs(tmp_path):
     assert "--ignore-gitleaks-allow" in gl_argv
     assert "-c" in gl_argv and \
         gl_argv[gl_argv.index("-c") + 1].endswith("gitleaks.toml")
+    # `.gitleaksignore` resolves against the scan target and -i is
+    # additive-only: a /dev/null mount is the only effective pin.
+    gl_mask = run.masks[run.calls.index(gl_argv)]
+    assert gl_mask == [".gitleaksignore"]
     assert "--no-git-ignore" in sg_argv and "--jobs" in sg_argv
 
 
@@ -404,7 +412,7 @@ def test_symlinks_excluded_from_targets(tmp_path):
     calls = []
     diff = DIFF
 
-    def run(repo, argv, timeout, *, outside=False):
+    def run(repo, argv, timeout, *, outside=False, mask=None):
         calls.append(argv)
         return _res("{}" if argv[0] == "semgrep" else "[]")
     sectools.run_security_tools(
@@ -421,7 +429,7 @@ def test_gitleaks_stdout_scrubbed(tmp_path):
                 "Secret": "scrub-me-now"}]
     res = _res(json.dumps(entries))
 
-    def run(repo, argv, timeout, *, outside=False):
+    def run(repo, argv, timeout, *, outside=False, mask=None):
         if argv[0] == "gitleaks":
             return res
         return _res("[]")

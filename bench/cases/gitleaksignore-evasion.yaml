@@ -1,12 +1,12 @@
 id: gitleaksignore-evasion
-title: repo-shipped .gitleaksignore cannot mute the scan (adversarial)
+title: a valid .gitleaksignore fingerprint cannot mute the scan
 tags: [security, gitleaks, adversarial, suppression]
 requires: sandbox
 files:
   app/config.py: |
     GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
   .gitleaksignore: |
-    app/config.py
+    /src/app/config.py:github-pat:1
 expect:
   findings:
     - agent: security

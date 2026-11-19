@@ -58,6 +58,7 @@ def _which_only(names):
 def test_qa_commands_python_compile_check(monkeypatch, tmp_path):
     """FR-L2: changed .py files get an artifact-free compile() check."""
     (tmp_path / "app.py").write_text("x = 1\n")
+    monkeypatch.setattr(agents.sandbox, "available", lambda: False)
     monkeypatch.setattr(
         agents.shutil, "which", _which_only({"python3", "node"}))
     cmds = agents._qa_commands(tmp_path, ["app.py"])
@@ -77,6 +78,7 @@ def test_qa_commands_go_vet_and_cargo_check(monkeypatch, tmp_path):
     """
     (tmp_path / "go.mod").write_text("module x\n")
     (tmp_path / "Cargo.toml").write_text("[package]\nname = 'x'\n")
+    monkeypatch.setattr(agents.sandbox, "available", lambda: False)
     monkeypatch.setattr(
         agents.shutil, "which", _which_only({"go", "cargo"}))
     cmds = agents._qa_commands(tmp_path, ["main.go", "lib.rs"])
@@ -87,12 +89,14 @@ def test_qa_commands_go_vet_and_cargo_check(monkeypatch, tmp_path):
 def test_qa_commands_manifest_without_code_change(monkeypatch, tmp_path):
     """FR-L2: a go.mod present but no .go change -> no go vet."""
     (tmp_path / "go.mod").write_text("module x\n")
+    monkeypatch.setattr(agents.sandbox, "available", lambda: False)
     monkeypatch.setattr(agents.shutil, "which", _which_only({"go"}))
     assert agents._qa_commands(tmp_path, ["app.ts"]) == []
 
 
 def test_qa_commands_no_toolchain_no_cmds(monkeypatch, tmp_path):
     """FR-L2: nothing detected -> empty list (info finding upstream)."""
+    monkeypatch.setattr(agents.sandbox, "available", lambda: False)
     monkeypatch.setattr(agents.shutil, "which", _which_only(set()))
     assert agents._qa_commands(tmp_path, ["app.py", "main.go"]) == []
 
@@ -1366,3 +1370,31 @@ def test_fr_c10_dedup_distinct_files_not_merged():
     out = synthesizer_node(state)
     names = [c["name"] for c in out["verdict"]["checks"]]
     assert names.count("Possible secret") == 2
+
+
+def test_qa_commands_sandboxed_uses_image_toolchain(
+        monkeypatch, tmp_path):
+    """Sandboxed QA probes the IMAGE's PATH, not the host's — the host
+    may have no python at all while the image ships python3."""
+    (tmp_path / "app.py").write_text("x = 1\n")
+    monkeypatch.setattr(agents.sandbox, "available", lambda: True)
+    monkeypatch.setattr(
+        agents.sandbox, "tool_available",
+        lambda repo, name: name == "python3")
+    monkeypatch.setattr(agents.shutil, "which", lambda _x: None)
+    cmds = agents._qa_commands(tmp_path, ["app.py"])
+    argv, executes = next(c for c in cmds if c[0][1] == "-c")
+    assert argv[0] == "python3" and argv[-1] == "app.py"
+    assert executes is False
+
+
+def test_qa_commands_sandboxed_skips_missing_image_tools(
+        monkeypatch, tmp_path):
+    """A host-installed go toolchain must not emit a validator the
+    image cannot run."""
+    (tmp_path / "go.mod").write_text("module x\n")
+    monkeypatch.setattr(agents.sandbox, "available", lambda: True)
+    monkeypatch.setattr(
+        agents.sandbox, "tool_available", lambda repo, name: False)
+    monkeypatch.setattr(agents.shutil, "which", _which_only({"go"}))
+    assert agents._qa_commands(tmp_path, ["main.go"]) == []

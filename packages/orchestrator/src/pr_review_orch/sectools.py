@@ -229,12 +229,16 @@ def _cap(findings: list[dict[str, Any]], tool: str) -> list[dict[str, Any]]:
 
 def _run_tool(name: str, repo: Path, argv: list[str],
               run: Runner, out: dict[str, Any], *,
-              outside: bool = False) -> dict[str, Any] | None:
+              outside: bool = False,
+              mask: list[str] | None = None
+              ) -> dict[str, Any] | None:
     """Spawn one scanner; ``None`` signals a degraded run (already
     reported as an info finding + process entry). ``outside`` runs
-    with cwd outside the worktree (FR-O30 config pinning)."""
+    with cwd outside the worktree and ``mask`` overlays repo files
+    with /dev/null (FR-O30 config pinning)."""
     try:
-        res = run(repo, argv, config.SEC_TOOL_TIMEOUT, outside=outside)
+        res = run(repo, argv, config.SEC_TOOL_TIMEOUT, outside=outside,
+                  mask=mask)
     except OSError:  # binary absent on the host-fallback path
         out["findings"].append(_finding(
             "info", f"{name} unavailable",
@@ -332,8 +336,10 @@ def _gitleaks(repo: Path, changed: set[str],
     # goes to /dev/stdout so nothing secret touches the container fs.
     #
     # FR-O30 pinning (all verified against the pinned binary):
-    # - outside=True: `.gitleaksignore` resolves against CWD, not the
-    #   target — cwd outside the tree means the repo's file never loads
+    # - mask=[".gitleaksignore"]: the file resolves against the scan
+    #   TARGET root (not cwd — re-verified with a valid fingerprint
+    #   after the original cwd-pinning claim proved wrong) and `-i` is
+    #   additive-only, so a /dev/null overlay is the only control
     # - `--ignore-gitleaks-allow`: inline `gitleaks:allow` comments off
     # - `-c` vendored `[extend] useDefault` config: a repo
     #   `.gitleaks.toml` auto-loads OVER the defaults, so pinning `-c`
@@ -343,7 +349,8 @@ def _gitleaks(repo: Path, changed: set[str],
             "--report-format", "json", "--report-path", "/dev/stdout",
             "--ignore-gitleaks-allow",
             "-c", _rules_path("gitleaks.toml"), target]
-    res = _run_tool("gitleaks", repo, argv, run, out, outside=True)
+    res = _run_tool("gitleaks", repo, argv, run, out, outside=True,
+                    mask=[".gitleaksignore"])
     if res is None:
         return
     try:
