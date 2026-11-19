@@ -226,3 +226,55 @@ def test_sweep_removes_only_stale_qg_containers(monkeypatch, tmp_path):
 def test_sweep_no_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SANDBOX_MODE", "0")
     assert sandbox.sweep() == []
+
+
+def test_tool_available_does_not_cache_failures(monkeypatch, tmp_path):
+    """A transient probe failure must not poison the cache — a later
+    success should still report the tool present."""
+    calls = []
+
+    def flaky(repo, argv, timeout, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("spawn failed")
+        return {"exit_code": 0, "timed_out": False}
+
+    sandbox._tool_cache.clear()
+    monkeypatch.setattr(sandbox, "run", flaky)
+    try:
+        assert sandbox.tool_available(tmp_path, "python3") is False
+        assert sandbox.tool_available(tmp_path, "python3") is True
+        assert len(calls) == 2
+        # success cached: a third call does not re-probe
+        assert sandbox.tool_available(tmp_path, "python3") is True
+        assert len(calls) == 2
+    finally:
+        sandbox._tool_cache.clear()
+
+
+def test_container_argv_masks_only_existing_paths(tmp_path):
+    """Absent mask targets are skipped — on :ro bind mounts (docker)
+    creating a mountpoint for a missing path can fail at start."""
+    (tmp_path / "exists.txt").write_text("x")
+    argv = sandbox.container_argv(
+        tmp_path, ["echo"], name="t", net=False, rt="podman",
+        mask=["exists.txt", "missing.txt"])
+    masks = [a for i, a in enumerate(argv)
+             if i > 0 and argv[i - 1] == "-v" and "/dev/null" in a]
+    assert masks == ["/dev/null:/src/exists.txt:ro"]
+
+
+def test_mask_symlink_masked_at_link_path(tmp_path):
+    """Symlinks are masked at the link path: the engine resolves the
+    destination inside the container, so the /dev/null overlay lands
+    on whatever the link points at — an attacker file under /src or
+    an image path. Escaping/duplicate entries are rejected."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / ".gitleaksignore").write_text("x")
+    (tmp_path / ".gitleaksignore").symlink_to("real/.gitleaksignore")
+    (tmp_path / "outside-link").symlink_to("/etc/passwd")
+    assert sandbox._mask_targets(
+        tmp_path,
+        [".gitleaksignore", "outside-link", "nope",
+         "/abs/path", "../escape", ".gitleaksignore"],
+    ) == [".gitleaksignore", "outside-link"]

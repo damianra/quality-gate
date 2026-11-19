@@ -159,7 +159,9 @@ validators, the dependency audit and the functional stage:
   `nosem`/`tfsec:ignore`-style directives added by the PR warn.
   FR-O30 pins every repo-controlled input — gitleaks/trivy spawn with
   cwd outside the tree (repo `trivy.yaml` never loads), the repo's
-  `.gitleaksignore` is masked by a `/dev/null` mount, a counter-scan
+  `.gitleaksignore` is masked by a `/dev/null` mount in the sandbox
+  (the host fallback cannot mask; the counter-scan still reports it),
+  a counter-scan
   enumerates live suppression surfaces as info, and the three tools
   run concurrently.
 

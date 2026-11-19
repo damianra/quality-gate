@@ -166,7 +166,9 @@ funcional:
   `tfsec:ignore` agregadas por el PR advierten. FR-O30 fija cada
   input controlado por el repo — gitleaks/trivy corren con cwd fuera
   del árbol (el `trivy.yaml` del repo nunca carga), el `.gitleaksignore`
-  del repo queda enmascarado por un mount de `/dev/null`,
+  del repo queda enmascarado por un mount de `/dev/null` en el sandbox
+  (el fallback de host no puede enmascarar; el counter-scan igual lo
+  reporta),
   un counter-scan enumera las superficies de supresión activas como
   info, y las tres herramientas corren de forma concurrente.
 

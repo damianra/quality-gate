@@ -25,7 +25,7 @@ import logging
 import os
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from quality_gate_mcp import git_ops
@@ -111,7 +111,14 @@ def tool_available(repo: Path | str, name: str) -> bool:
     (a host ``/usr/bin/python3`` is not mounted into the container).
     """
     if name not in _tool_cache:
-        res = run(repo, ["sh", "-c", f"command -v {name}"], 15)
+        try:
+            res = run(repo, ["sh", "-c", f"command -v {name}"], 15)
+            if not isinstance(res, dict) or res.get("timed_out"):
+                return False
+        except Exception:  # noqa: BLE001 - any probe failure is not
+            # evidence of absence; never cache a transient error into
+            # a permanent "tool missing".
+            return False
         _tool_cache[name] = res.get("exit_code") == 0
     return _tool_cache[name]
 
@@ -175,6 +182,29 @@ def _mount_args(rt: str, repo: Path) -> list[str]:
     return ["-v", f"{repo}:/src:ro", *tmp]
 
 
+def _mask_targets(repo: Path, mask: list[str] | None) -> list[str]:
+    """Resolve ``mask`` to mountable repo-relative file paths.
+
+    Skipped: absent paths (mountpoint creation can fail on ``:ro``
+    binds), directories, non-repo-relative entries, and duplicates.
+    Symlinks are masked at the *link* path — the engine resolves the
+    destination inside the container, so the ``/dev/null`` overlay
+    lands on whatever the link points at there (an attacker file
+    under ``/src`` or an image path like ``/etc/passwd``), which is
+    exactly what the mask must neutralize.
+    """
+    out: list[str] = []
+    for rel in mask or ():
+        rp = PurePosixPath(rel)
+        if rp.is_absolute() or ".." in rp.parts or rel in out:
+            continue
+        p = repo / rel
+        if not os.path.lexists(p) or p.is_dir():
+            continue
+        out.append(rel)
+    return out
+
+
 def container_argv(repo: Path, argv: list[str], *, name: str,
                    net: bool, rt: str,
                    workdir: str = "/src",
@@ -185,8 +215,9 @@ def container_argv(repo: Path, argv: list[str], *, name: str,
     ``/dev/null`` mount — the definitive way to stop a tool from
     reading a repo-controlled file it resolves against the scan
     target rather than a flag (FR-O30 gitleaks `.gitleaksignore`;
-    ``-i`` is additive and cannot remove it). Mounting over an absent
-    path just exposes an empty file, so masks are safe unconditionally.
+    ``-i`` is additive and cannot remove it). ``_mask_targets``
+    resolves which entries actually get overlaid (existing files only,
+    symlinks overlaid at the link path).
     """
     args = [
         rt, "run", "--rm",
@@ -200,7 +231,7 @@ def container_argv(repo: Path, argv: list[str], *, name: str,
         "--cpus", config.SANDBOX_CPUS,
         "--pids-limit", config.SANDBOX_PIDS,
         *_mount_args(rt, repo),
-        *[a for rel in (mask or ())
+        *[a for rel in _mask_targets(repo, mask)
           for a in ("-v", f"/dev/null:/src/{rel}:ro")],
         *_env_args(_env_spec()),
     ]
