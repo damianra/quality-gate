@@ -2,7 +2,7 @@
 # Runs PR-controlled code (validators, audits, functional steps);
 # never the orchestrator itself. Non-root by default; the runtime adds
 # --network none / --read-only / resource caps per the FR-O28 contract.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # FR-O29 scanner versions — pinned releases with expected sha256
 # literals frozen in the Dockerfile (from the upstream checksum
