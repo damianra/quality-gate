@@ -700,7 +700,7 @@ duration lands in `node_durations`.
     disables) during synthesis, after dedup, so the artifact
     matches the posted comment exactly.
   - **CI upload**: `pr-review.yml` gains a pinned
-    `codeql-action/upload-sarif` step (`if: always()`, advisory —
+    `github/codeql-action/upload-sarif` step (`if: always()`, advisory —
     its failure never fails the job) plus `security-events:
     write` on the job permissions. On private repos code
     scanning requires GitHub Advanced Security (free on public);
@@ -832,7 +832,7 @@ All via env vars; `.env.example` is the canonical template.
 - **CI — `pr-review.yml`:** on `pull_request` (opened/synchronize/reopened),
   Postgres service, `concurrency.cancel-in-progress: false` (cleanup must
   complete), signal-scan summary step, orchestrator run, an advisory
-  `codeql-action/upload-sarif` step feeding `QG_SARIF_PATH`
+  `github/codeql-action/upload-sarif` step feeding `QG_SARIF_PATH`
   (FR-O32), and a final `pgrep` orphan assertion (`if: always()`).
 - **Images:** OCI Dockerfiles per package, built from repo root, uv-based
   `uv sync --no-dev --package <pkg>`, non-root `appuser` (uid 10001).
