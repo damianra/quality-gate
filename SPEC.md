@@ -711,6 +711,54 @@ duration lands in `node_durations`.
     `file` renders the location as a `file[:line] — ` prefix on
     its detail, replacing the embedded `line N:` text producers
     used to write.
+- **FR-O33 Curated SAST ruleset expansion.** The `qg-rules/`
+  semgrep ruleset grows from the 12-rule seed toward ~50–100
+  high-signal rules across the supported ecosystems (python,
+  javascript/typescript, go, generic), ported from bandit, gosec
+  and NodeJSScan/eslint-security. The expansion is contract-first:
+  the layout, provenance, validation and bench requirements below
+  apply to every rule from the first batch on, and further batches
+  land in follow-up PRs under the same contract.
+  - **Layout**: the monolithic `semgrep-rules.yaml` splits into
+    per-language files — `python.yaml`, `javascript.yaml`,
+    `go.yaml`, `generic.yaml` — still loaded as one ruleset via
+    `--config <dir>` (semgrep reads every `*.yaml` in the
+    directory and ignores `gitleaks.toml`/`PROVENANCE.md`). Rule
+    ids keep the `<lang>-<slug>` convention and stay unique
+    across the whole directory.
+  - **Provenance**: `qg-rules/PROVENANCE.md` records, per rule
+    family, the source project, the reference version/tag, the
+    license and the port method — `rewrite` for Apache-2.0
+    sources (bandit, gosec), `clean-room` for GPL-3.0 sources
+    (NodeJSScan): clean-room rules are written from the
+    vulnerability class/CWE description, never from the GPL
+    rule code, because the vendored ruleset ships inside the
+    distributed image. Every rule carries
+    `metadata: {source: <family>, cwe: <id>}` matching the
+    provenance table.
+  - **Rules, not registry**: the ruleset stays vendored — scans
+    keep `--config` on the local directory; no `auto` or registry
+    config, no per-scan egress (unchanged FR-O29 contract).
+  - **Severity convention unchanged**: `ERROR` maps to warning,
+    `WARNING`/`INFO` to info — semgrep findings never reach
+    blocker; gitleaks keeps the blocker lane.
+  - **Bench contract** (FR-O31): every new rule ships a
+    `bench/cases/semgrep-<lang>-<slug>.yaml` detection case whose
+    `expect.findings` matches the rule id; rules with known
+    false-positive shapes additionally ship a clean/FP case
+    asserting `no_unexpected_above`. A rule's measured FP cost is
+    the bench report's unexpected-findings accounting — rules
+    that cannot meet the floor do not ship.
+  - **Validation at two levels**: a unit test parses every
+    `qg-rules/*.yaml` with pyyaml (already a dependency) and
+    enforces the schema — required keys, unique ids, severity ∈
+    {INFO,WARNING,ERROR}, declared languages, `metadata.source` ∈
+    the provenance table — so a malformed rule fails
+    `orchestrator-ci` without a scanner; and `Dockerfile.sandbox`
+    gains a `semgrep --validate --config /opt/qg-rules` step
+    after the ruleset `COPY` (verified against the pinned
+    `SEMGREP_VERSION`, no egress) so a syntactically broken rule
+    fails the image build, not reviews.
 
 ## 5. Non-functional requirements
 
@@ -840,7 +888,9 @@ All via env vars; `.env.example` is the canonical template.
   validation toolchains — it runs PR-controlled code, never the
   orchestrator itself. It also vendors the FR-O29 scanners (semgrep,
   gitleaks, trivy) plus the curated semgrep ruleset at
-  `/opt/qg-rules`.
+  `/opt/qg-rules` — per-language `*.yaml` files + `PROVENANCE.md`
+  license table (FR-O33), validated at build time by a
+  `semgrep --validate` pass so a broken rule fails the build.
 - **Compose:** `postgres` (healthchecked), `mcp-server` (SSE :8000),
   `orchestrator` (depends on postgres, mounts `REPO_UNDER_TEST` → `/work`
   read-write for `tsc` caches). Service mode adds `ingress` (uvicorn,
@@ -962,6 +1012,7 @@ volatile during early history edits; commits are identified by subject):
 | 92 | `fix(orchestrator)`: post-merge review hardening for FR-O31 |
 | 93 | `docs`: FR-O32 SARIF output |
 | 94 | `feat(orchestrator)`: FR-O32 SARIF output |
+| 95 | `docs`: FR-O33 curated SAST ruleset expansion |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1041,7 +1092,7 @@ coverage under measurement, then governance and isolation.
   time. Note: GitHub code scanning needs GitHub Advanced Security
   on private repos (free on public) — the SARIF file itself is the
   portable artifact for any SARIF-aware consumer.
-- **FR-O33 Curated SAST ruleset expansion.** `qg-rules/` grows from
+- **FR-O33 Curated SAST ruleset expansion.** *(spec'd — §4.2)* `qg-rules/` grows from
   the 12-rule seed to ~50–100 high-signal rules across the
   supported languages,
   ported from bandit (Python), gosec (Go) and NodeJSscan/
