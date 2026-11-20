@@ -115,6 +115,11 @@ SEC_TOOLS = frozenset(
 SEC_TOOL_TIMEOUT = int(os.environ.get("QG_SEC_TOOL_TIMEOUT", "120"))
 SEC_MAX_FINDINGS = int(os.environ.get("QG_SEC_MAX_FINDINGS", "10"))
 
+#: FR-O32: SARIF 2.1.0 log of the run's deduped findings, written during
+#: synthesis. Relative paths resolve against the repo/worktree root;
+#: ``off``/empty disables emission.
+SARIF_PATH = os.environ.get("QG_SARIF_PATH", "quality-gate.sarif")
+
 # --- Service mode (FR-O19..O22): webhook ingress + ephemeral fetch ------- #
 
 #: HMAC secret for X-Hub-Signature-256 verification. REQUIRED in service

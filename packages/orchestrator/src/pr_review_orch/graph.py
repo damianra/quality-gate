@@ -18,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 
 from quality_gate_mcp import git_ops, tools as mcp_tools
 
-from . import agents, cleanup, config, logs, metrics, sandbox, scope
+from . import agents, cleanup, config, logs, metrics, sandbox, sarif, scope
 from .state import PRReviewState
 
 logger = logging.getLogger("pr-review-orch")
@@ -126,12 +126,24 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
     blockers = [f for f in findings if f["severity"] == "blocker"]
     approve = not blockers
 
+    # FR-O32: SARIF artifact mirrors the deduped list — additive, a
+    # write failure surfaces as an error entry, never a run failure.
+    errors_update: list[str] = []
+    try:
+        sarif.emit(findings, state.get("repo_path", "."))
+    except OSError as exc:
+        errors_update.append(f"sarif emit: {exc}")
+
     checks = [
         {
             "name": f["title"],
             "severity": f.get("severity"),
             "passed": f.get("severity") != "blocker",
-            "detail": f"[{f['agent']}] {f['detail']}",
+            "detail": (
+                f"[{f['agent']}] "
+                + (f"{f['file']}:{f['line']} — " if f.get("line")
+                   else f"{f['file']} — " if f.get("file") else "")
+                + f["detail"]),
         }
         for f in findings
     ]
@@ -173,6 +185,7 @@ def synthesizer_node(state: PRReviewState) -> dict[str, Any]:
         "metrics": report,
         "llm_calls": harness["llm_calls"],
         "active_pgids": harness["active_pgids"],
+        "errors": errors_update,
     }
     if state.get("dry_run"):
         update["posted"] = {"action": "dry_run", "url": "", "head_sha": state.get("head_sha", "")[:7]}

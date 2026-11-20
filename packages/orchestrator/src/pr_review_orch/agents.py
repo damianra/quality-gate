@@ -47,7 +47,8 @@ _LLM_OUTPUT_CONTRACT = (
     "Respond with ONLY a JSON array — no prose, no markdown fences. "
     "Each element is EITHER a finding "
     '{"severity": "info|warning|blocker", "title": str, "detail": str, '
-    '"file": str|null, "evidence": str, "checklist_item": int|null} '
+    '"file": str|null, "line": int|null, "evidence": str, '
+    '"checklist_item": int|null} '
     'OR a checklist verdict {"checklist_item": int, "verdict": "ok"}. '
     '"evidence" MUST cite the supplied context proving the claim — '
     'prefer a diff line id: the "## Diff" section prefixes every line '
@@ -430,12 +431,18 @@ def _llm_findings(
             known_files is not None and f_file not in known_files
         ):
             f_file = None
+        # FR-O32: `line` validated like `file` — fabricated or
+        # non-positive attributions drop to None.
+        f_line = item.get("line")
+        if type(f_line) is not int or f_line <= 0:
+            f_line = None
         out.append(_finding(
             agent,
             sev if sev in _LLM_SEVERITIES else "info",
             f"LLM: {(title or detail)[:80]}",
             detail[:500],
             file=f_file,
+            line=f_line,
         ))
     uncovered = [i for i in range(1, checklist_count + 1)
                  if i not in covered]
@@ -710,9 +717,10 @@ def choose_agents(signals: dict[str, Any], files: list[dict[str, Any]]) -> list[
 
 
 def _finding(agent: str, severity: str, title: str, detail: str,
-             file: str | None = None) -> dict[str, Any]:
+             file: str | None = None,
+             line: int | None = None) -> dict[str, Any]:
     return {"agent": agent, "severity": severity, "title": title,
-            "detail": detail, "file": file}
+            "detail": detail, "file": file, "line": line}
 
 
 # --------------------------------------------------------------------------- #
@@ -1036,6 +1044,38 @@ def _dependency_audit(repo: Path, changed: list[str]) -> dict[str, Any]:
     return out
 
 
+#: FR-O32: file:line extraction from validator diagnostics — ordered
+#: specific → generic so `File "x", line N`/`--> x:N`/`x(N,M)` win
+#: over the bare `x:N` fallback.
+_QA_LOC_RES = (
+    re.compile(r'File "([^"]+)", line (\d+)'),
+    re.compile(r"-->\s*(\S+?):(\d+)"),
+    re.compile(r"(\S+\.\w+)\((\d+),\s*\d+\)"),
+    re.compile(r"(\S+\.\w+):(\d+)"),
+)
+
+
+def _qa_location(text: str, known: set[str]
+                 ) -> tuple[str | None, int | None]:
+    """First ``file:line`` in validator output resolving to a changed
+    file — feeds the finding's ``file``/``line`` fields (FR-O32)."""
+    for raw in text.splitlines()[:20]:
+        for rx in _QA_LOC_RES:
+            m = rx.search(raw)
+            if not m:
+                continue
+            p = m.group(1).replace("\\", "/").lstrip("./")
+            hit = p if p in known else next(
+                (k for k in known if p.endswith("/" + k)), None)
+            if hit is None:
+                continue
+            try:
+                return hit, int(m.group(2))
+            except ValueError:
+                return hit, None
+    return None, None
+
+
 # Test/fixture paths: secret-pattern hits here are almost always fixtures
 # (e.g. `token: 't'`, `'fake-token'`), so they downgrade to warning.
 _TEST_PATH_RE = re.compile(
@@ -1298,10 +1338,13 @@ def qa_specialist(state: dict[str, Any]) -> dict[str, Any]:
         elif res["exit_code"] != 0:
             failures += 1
             output = (res["stderr"] or res["stdout"]).strip().splitlines()
+            loc_file, loc_line = _qa_location(
+                res["stderr"] or res["stdout"], set(files))
             findings.append(_finding(
                 "qa", "blocker", "Validation failed",
                 f"`{' '.join(cmd)}` exited {res['exit_code']}: "
-                f"{output[0][:200] if output else 'no output'}"))
+                f"{output[0][:200] if output else 'no output'}",
+                file=loc_file, line=loc_line))
 
     if commands and not failures:
         findings.append(_finding(

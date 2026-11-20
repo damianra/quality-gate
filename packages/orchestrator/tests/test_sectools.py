@@ -223,6 +223,9 @@ def test_gitleaks_added_line_filter_and_redaction(tmp_path):
     import hashlib
     fp = hashlib.sha256(b"AKIAFAKESECRET12345").hexdigest()[:8]
     assert fp in blockers[0]["detail"]
+    # FR-O32: the matched line rides the finding's `line` field, not
+    # the detail text.
+    assert blockers[0]["file"] == "app.py" and blockers[0]["line"] == 2
 
 
 def test_gitleaks_test_path_downgrades(tmp_path):
@@ -395,7 +398,8 @@ def test_counter_scan_enumerates_preexisting(tmp_path):
     assert "Scanner ignore/config file present" in infos
     d = [f for f in out["findings"]
          if f["title"] == "Suppression directive present"]
-    assert len(d) == 1 and "app.py:5" in d[0]["detail"]
+    assert (len(d) == 1 and d[0]["file"] == "app.py"
+            and d[0]["line"] == 5)
     # The PR-added .trivyignore-less file: sub/.trivyignore is not in
     # changed -> info. app.py:2 directive landed on an added line ->
     # deduped; FR-O29 warning fires instead.

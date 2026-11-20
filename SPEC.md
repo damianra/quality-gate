@@ -700,7 +700,7 @@ duration lands in `node_durations`.
     disables) during synthesis, after dedup, so the artifact
     matches the posted comment exactly.
   - **CI upload**: `pr-review.yml` gains a pinned
-    `codeql-action/upload-sarif` step (`if: always()`, advisory —
+    `github/codeql-action/upload-sarif` step (`if: always()`, advisory —
     its failure never fails the job) plus `security-events:
     write` on the job permissions. On private repos code
     scanning requires GitHub Advanced Security (free on public);
@@ -832,7 +832,7 @@ All via env vars; `.env.example` is the canonical template.
 - **CI — `pr-review.yml`:** on `pull_request` (opened/synchronize/reopened),
   Postgres service, `concurrency.cancel-in-progress: false` (cleanup must
   complete), signal-scan summary step, orchestrator run, an advisory
-  `codeql-action/upload-sarif` step feeding `QG_SARIF_PATH`
+  `github/codeql-action/upload-sarif` step feeding `QG_SARIF_PATH`
   (FR-O32), and a final `pgrep` orphan assertion (`if: always()`).
 - **Images:** OCI Dockerfiles per package, built from repo root, uv-based
   `uv sync --no-dev --package <pkg>`, non-root `appuser` (uid 10001).
@@ -961,6 +961,7 @@ volatile during early history edits; commits are identified by subject):
 | 91 | `feat`: FR-O31 golden-set benchmark harness + initial corpus |
 | 92 | `fix(orchestrator)`: post-merge review hardening for FR-O31 |
 | 93 | `docs`: FR-O32 SARIF output |
+| 94 | `feat(orchestrator)`: FR-O32 SARIF output |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1027,7 +1028,8 @@ coverage under measurement, then governance and isolation.
   cases; an adversarial subset replays the suppression/evasion
   attacks FR-O29/FR-O30 defend against. Runs in a periodic CI job,
   not per-PR.
-- **FR-O32 SARIF output.** *(spec'd — §4.2)* Findings convert to SARIF 2.1.0 `runs`
+- **FR-O32 SARIF output.** *(implemented — §4.2, `sarif.py` +
+  `upload-sarif`)* Findings convert to SARIF 2.1.0 `runs`
   (one per agent — the §6.3 schema has no tool discriminator
   unless one is added) via a small `sarif.py` module; the finding
   schema (§6.3) gains an explicit `line` field (today it lives
