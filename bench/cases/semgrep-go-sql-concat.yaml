@@ -1,0 +1,16 @@
+id: semgrep-go-sql-concat
+title: semgrep flags SQL concat/Sprintf
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    func f(db DB, id string) {
+    	db.Query("SELECT * FROM t WHERE id=" + id)
+    	db.Exec(fmt.Sprintf("DELETE FROM t WHERE id=%s", id))
+    }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-sql-injection-format

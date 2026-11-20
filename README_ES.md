@@ -170,7 +170,12 @@ funcional:
   (el fallback de host no puede enmascarar; el counter-scan igual lo
   reporta),
   un counter-scan enumera las superficies de supresión activas como
-  info, y las tres herramientas corren de forma concurrente.
+  info, y las tres herramientas corren de forma concurrente. El
+  ruleset de semgrep (FR-O33) vive en `qg-rules/` — archivos por
+  lenguaje portados de bandit/gosec/NodeJSScan con contabilidad de
+  licencias por familia en `PROVENANCE.md`; cada regla trae su caso
+  de detección en el bench y el build de la imagen corre
+  `semgrep --validate`, así una regla rota rompe el build.
 
 - **Benchmark golden-set (FR-O31)** — `bench/` reejecuta un corpus de
   PRs sintéticos (casos de detección + adversarios + falsos positivos)

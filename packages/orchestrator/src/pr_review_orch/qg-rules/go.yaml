@@ -1,0 +1,122 @@
+# FR-O33 curated semgrep ruleset — go family. Vendored into
+# qg-sandbox at /opt/qg-rules; scans run with --network none. Severity
+# drives the finding mapping (ERROR->warning, WARNING/INFO->info).
+# Every rule carries provenance metadata (see PROVENANCE.md).
+rules:
+  # --- qg seed ---------------------------------------------------------- #
+  - id: go-command-injection
+    pattern: exec.Command($SH, "-c", $CMD)
+    message: sh -c with a non-literal command — injection risk.
+    languages: [go]
+    severity: ERROR
+    metadata: {source: qg, cwe: 78}
+
+  - id: go-weak-hash
+    pattern-either:
+      - pattern: md5.New(...)
+      - pattern: md5.Sum(...)
+      - pattern: sha1.New(...)
+      - pattern: sha1.Sum(...)
+    message: weak hash (md5/sha1) — not for passwords or integrity.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: qg, cwe: 327}
+
+  # --- gosec ports ------------------------------------------------------ #
+  - id: go-ssh-insecure-hostkey
+    pattern: ssh.InsecureIgnoreHostKey(...)
+    message: SSH host-key verification disabled — MITM exposure.
+    languages: [go]
+    severity: ERROR
+    metadata: {source: gosec, ref: G106, cwe: 295}
+
+  - id: go-tls-insecure-skip-verify
+    pattern-regex: InsecureSkipVerify\s*:\s*true
+    message: InsecureSkipVerify — TLS certificate checks disabled,
+      MITM exposure.
+    languages: [go]
+    severity: ERROR
+    metadata: {source: gosec, ref: G402, cwe: 295}
+
+  - id: go-file-permissive-perms
+    patterns:
+      - pattern: $F(..., $PERM, ...)
+      - metavariable-regex:
+          metavariable: $F
+          regex: "(os|ioutil)\\.(WriteFile|OpenFile|Chmod|Mkdir|MkdirAll|TempFile|TempDir)"
+      - metavariable-regex:
+          metavariable: $PERM
+          regex: "^0o?(66|77)[0-9]$"
+    message: permissive file/dir mode (>=0o660) — leaks or invites
+      tampering; prefer 0o600/0o700.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G301, cwe: 732}
+
+  - id: go-sql-injection-format
+    patterns:
+      - pattern-either:
+          - pattern: $DB.$M("..." + ...)
+          - pattern: $DB.$M(fmt.Sprintf(...), ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(Query|QueryRow|QueryContext|QueryRowContext|Exec|ExecContext|Prepare|PrepareContext)$"
+    message: SQL statement built by concatenation/Sprintf — injection
+      risk; use placeholders.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G201, cwe: 89}
+
+  - id: go-exec-nonliteral
+    patterns:
+      - pattern: exec.Command($CMD, ...)
+      - pattern-not: exec.Command("...", ...)
+      - pattern-not: exec.Command($SH, "-c", ...)
+    message: exec.Command on a non-literal — command-injection risk if
+      user-controlled.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G204, cwe: 78}
+
+  - id: go-http-url-nonliteral
+    patterns:
+      - pattern: http.$M($U, ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(Get|Post|Head|NewRequest|NewRequestWithContext)$"
+      - pattern-not: http.$M("...", ...)
+    message: HTTP request to a non-literal URL — SSRF risk if
+      user-controlled; validate/allowlist it.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G107, cwe: 918}
+
+  - id: go-weak-cipher
+    pattern-either:
+      - pattern: des.NewCipher(...)
+      - pattern: des.NewTripleDESCipher(...)
+      - pattern: rc4.NewCipher(...)
+    message: weak cipher (DES/3DES/RC4) — use AES-GCM or ChaCha20.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G401, cwe: 327}
+
+  - id: go-math-rand-insecure
+    pattern-either:
+      - pattern: rand.Intn(...)
+      - pattern: rand.Int(...)
+      - pattern: rand.Int31(...)
+      - pattern: rand.Int31n(...)
+      - pattern: rand.Int63(...)
+      - pattern: rand.Int63n(...)
+      - pattern: rand.Float32(...)
+      - pattern: rand.Float64(...)
+      - pattern: rand.Perm(...)
+      - pattern: rand.Shuffle(...)
+      - pattern: rand.Seed(...)
+      - pattern: rand.NewSource(...)
+    message: math/rand PRNG — not cryptographically secure; use
+      crypto/rand for secrets/tokens.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G404, cwe: 330}

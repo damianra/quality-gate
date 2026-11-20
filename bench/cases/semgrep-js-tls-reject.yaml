@@ -1,0 +1,13 @@
+id: semgrep-js-tls-reject
+title: semgrep flags rejectUnauthorized:false
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    const agent = new https.Agent({rejectUnauthorized: false});
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-tls-reject-unauthorized

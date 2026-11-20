@@ -1,0 +1,12 @@
+id: semgrep-js-open-redirect
+title: semgrep flags non-literal redirect
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    app.get("/go", (req, res) => res.redirect(req.query.next));
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-open-redirect

@@ -1,0 +1,14 @@
+id: semgrep-js-weak-crypto
+title: semgrep flags weak hash/cipher
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    const crypto = require("crypto");
+    const h = crypto.createHash('md5');
+    const c = crypto.createCipher('des', key);
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-weak-crypto

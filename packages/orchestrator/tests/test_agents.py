@@ -151,6 +151,7 @@ def test_secret_in_test_file_is_warning_not_blocker():
         "secret_candidates": [
             {"file": "tests/finalizer.test.js",
              "line": "const r = await fn(git, HTTPS, { token: 't' })"},
+            {"file": "bench/cases/x.yaml", "line": "password = 'pw'"},
             {"file": "src/keys.ts", "line": "api_key = 'sk-real'"},
         ]
     })
@@ -161,7 +162,9 @@ def test_secret_in_test_file_is_warning_not_blocker():
         if f["title"].startswith("Possible hardcoded secret")
     }
     assert det["tests/finalizer.test.js"]["severity"] == "warning"
-    assert "(test file)" in det["tests/finalizer.test.js"]["title"]
+    assert "(fixture path)" in det["tests/finalizer.test.js"]["title"]
+    # bench/ holds synthetic corpus files — same fixture downgrade.
+    assert det["bench/cases/x.yaml"]["severity"] == "warning"
     assert det["src/keys.ts"]["severity"] == "blocker"
 
 

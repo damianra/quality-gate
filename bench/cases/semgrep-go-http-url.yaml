@@ -1,0 +1,17 @@
+id: semgrep-go-http-url
+title: semgrep flags non-literal http.Get
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "net/http"
+    func f(target string) {
+    	http.Get(target)
+    	http.Get("https://api.internal/health")
+    }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-http-url-nonliteral

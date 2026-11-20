@@ -1078,8 +1078,11 @@ def _qa_location(text: str, known: set[str]
 
 # Test/fixture paths: secret-pattern hits here are almost always fixtures
 # (e.g. `token: 't'`, `'fake-token'`), so they downgrade to warning.
-_TEST_PATH_RE = re.compile(
-    r"(?:^|/)(?:tests?|__tests__|__mocks__|fixtures?|mocks?)(?:/|$)"
+# `bench/` counts too: benchmark corpora are synthetic fixture code, and
+# this repo's own `bench/cases/` holds credential-looking payloads on
+# purpose.
+_FIXTURE_PATH_RE = re.compile(
+    r"(?:^|/)(?:tests?|__tests__|__mocks__|fixtures?|mocks?|bench)(?:/|$)"
     r"|\.(?:test|spec)\.[a-z0-9]+$"
     r"|(?:^|/)test_[a-z0-9_]+\.[a-z0-9]+$",
     re.IGNORECASE,
@@ -1107,11 +1110,12 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     for cand in s.get("secret_candidates", []):
         cand_file = cand.get("file")
         cand_line = cand.get("line", "")
-        in_test = bool(cand_file) and _TEST_PATH_RE.search(cand_file)
+        fixture = bool(cand_file) and _FIXTURE_PATH_RE.search(cand_file)
         findings.append(_finding(
             "security",
-            "warning" if in_test else "blocker",
-            "Possible hardcoded secret" + (" (test file)" if in_test else ""),
+            "warning" if fixture else "blocker",
+            "Possible hardcoded secret"
+            + (" (fixture path)" if fixture else ""),
             f"Added line matches secret pattern: {cand_line[:120]}",
             file=cand_file))
 
@@ -1138,7 +1142,7 @@ def security_specialist(state: dict[str, Any]) -> dict[str, Any]:
     for hit in s.get("prompt_injection", []):
         f_file, line = hit.get("file"), hit.get("line", "")
         benign = (
-            (f_file and _TEST_PATH_RE.search(f_file))
+            (f_file and _FIXTURE_PATH_RE.search(f_file))
             or (f_file and _INJECTION_DOC_PATH_RE.search(f_file))
             or _INJECTION_PATTERN_DEF_RE.search(line)
         )

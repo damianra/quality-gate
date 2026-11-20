@@ -1,0 +1,13 @@
+id: semgrep-python-weak-cipher
+title: semgrep flags DES cipher use
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    from Crypto.Cipher import DES
+    cipher = DES.new(key, DES.MODE_ECB)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-weak-cipher

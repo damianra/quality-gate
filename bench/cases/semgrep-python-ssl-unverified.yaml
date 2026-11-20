@@ -1,0 +1,13 @@
+id: semgrep-python-ssl-unverified
+title: semgrep flags unverified TLS context
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import ssl
+    ctx = ssl._create_unverified_context()
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: python-ssl-unverified-context

@@ -1,0 +1,36 @@
+# FR-O33 curated semgrep ruleset — generic family (language-agnostic
+# regex rules). Vendored into qg-sandbox at /opt/qg-rules; scans run
+# with --network none. Severity drives the finding mapping
+# (ERROR->warning, WARNING/INFO->info). Every rule carries provenance
+# metadata (see PROVENANCE.md).
+rules:
+  - id: generic-curl-pipe-shell
+    pattern-regex: curl[^\n|]*\|\s*(sudo\s+)?(ba)?sh\b
+    message: curl | sh pattern — remote code execution from an
+      unpinned source.
+    languages: [generic]
+    severity: ERROR
+    metadata: {source: qg, cwe: 494}
+
+  - id: generic-wget-pipe-shell
+    pattern-regex: wget[^\n|]*\|\s*(sudo\s+)?(ba)?sh\b
+    message: wget | sh pattern — remote code execution from an
+      unpinned source.
+    languages: [generic]
+    severity: ERROR
+    metadata: {source: qg, cwe: 494}
+
+  - id: generic-private-key-block
+    pattern-regex: -----BEGIN (RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY( BLOCK)?-----
+    message: private key material committed in source.
+    languages: [generic]
+    severity: ERROR
+    metadata: {source: qg, cwe: 312}
+
+  - id: generic-yaml-python-object
+    pattern-regex: '!!python/(object|name|module)'
+    message: PyYAML python/object tag — deserializes to arbitrary code
+      on load.
+    languages: [generic]
+    severity: ERROR
+    metadata: {source: qg, cwe: 502}

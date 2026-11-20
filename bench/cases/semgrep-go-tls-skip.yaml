@@ -1,0 +1,14 @@
+id: semgrep-go-tls-skip
+title: semgrep flags InsecureSkipVerify
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "crypto/tls"
+    var c = &tls.Config{InsecureSkipVerify: true}
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: go-tls-insecure-skip-verify

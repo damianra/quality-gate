@@ -1,0 +1,16 @@
+id: semgrep-python-try-except-pass
+title: semgrep flags except:pass swallow
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    def load():
+        try:
+            return int(open("n").read())
+        except ValueError:
+            pass
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-try-except-pass

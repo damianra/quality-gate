@@ -163,7 +163,11 @@ validators, the dependency audit and the functional stage:
   (the host fallback cannot mask; the counter-scan still reports it),
   a counter-scan
   enumerates live suppression surfaces as info, and the three tools
-  run concurrently.
+  run concurrently. The semgrep ruleset (FR-O33) lives in
+  `qg-rules/` — per-language files ported from bandit/gosec/
+  NodeJSScan with per-family license accounting in `PROVENANCE.md`;
+  every rule ships a bench detection case and the image build runs
+  `semgrep --validate`, so a broken rule fails the build.
 
 - **Golden-set benchmark (FR-O31)** — `bench/` replays a corpus of
   synthetic PRs (detection + adversarial + false-positive cases)

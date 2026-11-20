@@ -1,0 +1,17 @@
+id: semgrep-go-exec-nonliteral
+title: semgrep flags non-literal exec.Command
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "os/exec"
+    func f(userCmd string) {
+    	exec.Command(userCmd, "-v")
+    	exec.Command("git", "status")
+    }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-exec-nonliteral

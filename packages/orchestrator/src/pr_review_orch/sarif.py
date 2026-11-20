@@ -32,9 +32,9 @@ def findings_to_sarif(findings: list[dict[str, Any]],
     findings a single empty ``quality-gate`` run is emitted so the
     artifact still uploads cleanly. ``file`` becomes
     ``artifactLocation.uri`` (repo-relative POSIX path, already
-    normalized by producers) and ``line`` becomes
-    ``region.startLine`` — both omitted when absent so file-less
-    findings still land as run-level results.
+    normalized by producers; ``.`` when absent — GitHub code scanning
+    requires every result to carry a location) and ``line`` becomes
+    ``region.startLine``, omitted when absent.
     """
     by_agent: dict[str, list[dict[str, Any]]] = {}
     for f in findings:
@@ -59,16 +59,20 @@ def findings_to_sarif(findings: list[dict[str, Any]],
                 "message": {
                     "text": str(f.get("detail") or rid)[:1000]},
             }
+            # GitHub code scanning rejects results with no ``locations``
+            # at all (``locationFromSarifResult``), so run-level
+            # findings anchor to ``.`` — the worktree root directory,
+            # a valid relative artifact URI — instead of dropping them.
             file = f.get("file")
-            if isinstance(file, str) and file:
-                phys: dict[str, Any] = {
-                    "artifactLocation": {
-                        "uri": file.replace(os.sep, "/")},
-                }
-                line = f.get("line")
-                if type(line) is int and line > 0:
-                    phys["region"] = {"startLine": line}
-                result["locations"] = [{"physicalLocation": phys}]
+            phys: dict[str, Any] = {
+                "artifactLocation": {
+                    "uri": file.replace(os.sep, "/")
+                    if isinstance(file, str) and file else "."},
+            }
+            line = f.get("line")
+            if type(line) is int and line > 0:
+                phys["region"] = {"startLine": line}
+            result["locations"] = [{"physicalLocation": phys}]
             results.append(result)
         driver: dict[str, Any] = {
             "name": f"quality-gate-{agent}".rstrip("-"),

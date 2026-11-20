@@ -1,0 +1,139 @@
+# FR-O33 curated semgrep ruleset — javascript/typescript family.
+# Vendored into qg-sandbox at /opt/qg-rules; scans run with
+# --network none. Severity drives the finding mapping
+# (ERROR->warning, WARNING/INFO->info). Every rule carries provenance
+# metadata (see PROVENANCE.md).
+rules:
+  # --- qg seed ---------------------------------------------------------- #
+  - id: js-eval-usage
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)
+    message: eval()/new Function() on dynamic input — code-injection
+      risk.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: qg, cwe: 95}
+
+  - id: js-child-process-string
+    pattern-either:
+      - pattern: $CP.exec($CMD, ...)
+      - pattern: $CP.execSync($CMD, ...)
+    message: child_process.exec* with a string command — injection
+      risk when $CMD is not a literal.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: qg, cwe: 78}
+
+  - id: js-dangerous-html
+    pattern-either:
+      - pattern: "<$EL dangerouslySetInnerHTML={{__html: $H}} />"
+      - pattern: "$EL.innerHTML = $H"
+    message: raw HTML injection — XSS risk if input is user-controlled.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: qg, cwe: 79}
+
+  # --- nodejsscan clean-room ports -------------------------------------- #
+  - id: js-regexp-nonliteral
+    patterns:
+      - pattern: new RegExp($SRC, ...)
+      - pattern-not: new RegExp("...", ...)
+    message: RegExp built from a non-literal — user input becomes a
+      ReDoS/injection vector; escape it first.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 400}
+
+  - id: js-dom-xss-sinks
+    pattern-either:
+      - pattern: document.write(...)
+      - pattern: document.writeln(...)
+      - pattern: $EL.outerHTML = $H
+      - pattern: $EL.insertAdjacentHTML(...)
+    message: DOM sink writing raw HTML — XSS risk if input is
+      user-controlled.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 79}
+
+  - id: js-open-redirect
+    patterns:
+      - pattern: res.redirect($U, ...)
+      - pattern-not: res.redirect("...", ...)
+    message: redirect target is not a literal — open-redirect risk if
+      user-controlled.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 601}
+
+  - id: js-cors-wildcard
+    pattern-either:
+      - pattern: 'cors(..., {origin: "*", ...}, ...)'
+      - pattern: $R.set("Access-Control-Allow-Origin", "*", ...)
+      - pattern: $R.header("Access-Control-Allow-Origin", "*", ...)
+      - pattern: $R.setHeader("Access-Control-Allow-Origin", "*", ...)
+    message: CORS wildcard origin — any site can read authenticated
+      responses cross-origin.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 942}
+
+  - id: js-tls-reject-unauthorized
+    pattern-either:
+      - pattern-regex: rejectUnauthorized\s*:\s*false
+      - pattern-regex: NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0
+    message: TLS certificate verification disabled — MITM exposure.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 295}
+
+  - id: js-child-process-shell-true
+    pattern-either:
+      - pattern: '$CP.spawn(..., {shell: true, ...}, ...)'
+      - pattern: '$CP.spawnSync(..., {shell: true, ...}, ...)'
+      - pattern: '$CP.execFile(..., {shell: true, ...}, ...)'
+      - pattern: '$CP.execFileSync(..., {shell: true, ...}, ...)'
+    message: child_process with shell:true — the command runs through
+      a shell; injection risk on non-literal args.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 78}
+
+  - id: js-weak-crypto
+    pattern-either:
+      - pattern: crypto.createHash("md5", ...)
+      - pattern: crypto.createHash("sha1", ...)
+      - pattern: crypto.createCipher("des", ...)
+      - pattern: crypto.createCipher("rc4", ...)
+      - pattern: crypto.createCipheriv("des", ...)
+      - pattern: crypto.createCipheriv("rc4", ...)
+      - pattern-regex: crypto\.createCipher(?:iv)?\(\s*['"][a-z0-9]+-ecb['"]
+    message: weak hash/cipher (md5/sha1/des/rc4/ECB mode) — not for
+      passwords or confidentiality.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 327}
+
+  - id: js-node-serialize
+    pattern-either:
+      - pattern: require("node-serialize")
+      - pattern: require('node-serialize')
+      - pattern: $S.unserialize(...)
+    message: node-serialize unserialize() executes embedded functions —
+      RCE on untrusted input.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 502}
+
+  - id: js-sql-string-concat
+    pattern-either:
+      - pattern: $X.query("..." + ...)
+      - pattern: $X.query($A + $B)
+      - pattern-regex: \.query\s*\(\s*`
+    message: SQL query built by string concatenation/interpolation —
+      injection risk; use parameterized queries.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 89}

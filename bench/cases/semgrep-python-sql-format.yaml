@@ -1,0 +1,14 @@
+id: semgrep-python-sql-format
+title: semgrep flags SQL string formatting
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    def find(cur, uid):
+        cur.execute("SELECT * FROM users WHERE id=" + uid)
+        cur.execute("SELECT * FROM users WHERE id={}".format(uid))
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-sql-injection-format

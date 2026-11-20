@@ -1,0 +1,188 @@
+# FR-O33 curated semgrep ruleset — python family. Vendored into
+# qg-sandbox at /opt/qg-rules; scans run with --network none. Severity
+# drives the finding mapping (ERROR->warning, WARNING/INFO->info).
+# Every rule carries provenance metadata (see PROVENANCE.md).
+rules:
+  # --- qg seed ---------------------------------------------------------- #
+  - id: python-eval-exec
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+    message: eval()/exec() on dynamic input — code-injection risk.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: qg, cwe: 95}
+
+  - id: python-subprocess-shell
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$F(..., shell=True, ...)
+          - pattern: os.system(...)
+    message: shell command built in Python — injection risk if input
+      is user-controlled.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: qg, cwe: 78}
+
+  - id: python-requests-verify-false
+    pattern: requests.$M(..., verify=False, ...)
+    message: TLS verification disabled — MITM exposure.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: qg, cwe: 295}
+
+  - id: python-unsafe-deserialize
+    patterns:
+      - pattern-either:
+          - pattern: pickle.loads(...)
+          - pattern: pickle.load(...)
+          - pattern: yaml.unsafe_load(...)
+          - pattern: yaml.load(...)
+          - pattern: marshal.loads(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.loader.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.loader.CSafeLoader, ...)
+    message: unsafe deserialization of untrusted data.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: qg, cwe: 502}
+
+  - id: python-weak-hash
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: weak hash (md5/sha1) — not for passwords or integrity.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: qg, cwe: 327}
+
+  # --- bandit ports ----------------------------------------------------- #
+  - id: python-hardcoded-password-kwarg
+    patterns:
+      - pattern: $F(..., $KW="...", ...)
+      - metavariable-regex:
+          metavariable: $KW
+          regex: "^(password|passwd|pwd|secret|token|api_key|apikey)$"
+    message: credential passed as a hardcoded keyword argument.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B106, cwe: 798}
+
+  - id: python-try-except-pass
+    pattern-either:
+      - pattern: |
+          try:
+            ...
+          except:
+            pass
+      - pattern: |
+          try:
+            ...
+          except $E:
+            pass
+      - pattern: |
+          try:
+            ...
+          except $E as $X:
+            pass
+    message: except block silently swallows errors — bugs and failures
+      become invisible.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B110, cwe: 390}
+
+  - id: python-ssl-unverified-context
+    pattern: ssl._create_unverified_context(...)
+    message: unverified TLS context — certificate checks disabled.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: bandit, ref: B323, cwe: 295}
+
+  - id: python-ssl-obsolete-protocol
+    pattern-either:
+      - pattern: ssl.PROTOCOL_SSLv2
+      - pattern: ssl.PROTOCOL_SSLv3
+      - pattern: ssl.PROTOCOL_TLSv1
+      - pattern: ssl.PROTOCOL_TLSv1_1
+    message: obsolete SSL/TLS protocol version — known-broken transport
+      security.
+    languages: [python]
+    severity: ERROR
+    metadata: {source: bandit, ref: B502, cwe: 327}
+
+  - id: python-tempfile-mktemp
+    pattern-either:
+      - pattern: tempfile.mktemp(...)
+      - pattern: os.tempnam(...)
+      - pattern: os.tmpnam(...)
+    message: insecure temp-file name — use NamedTemporaryFile/mkstemp;
+      mktemp races a symlink attack.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B306, cwe: 377}
+
+  - id: python-chmod-permissive
+    patterns:
+      - pattern-either:
+          - pattern: os.chmod($P, 0o777)
+          - pattern: os.chmod($P, 0o666)
+          - pattern: os.chmod($P, stat.S_IRWXO)
+    message: permissive file mode — world-writable/readable files leak
+      or invite tampering.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B103, cwe: 732}
+
+  - id: python-weak-cipher
+    pattern-either:
+      - pattern: DES.new(...)
+      - pattern: ARC2.new(...)
+      - pattern: ARC4.new(...)
+      - pattern: Blowfish.new(...)
+      - pattern: XOR.new(...)
+      - pattern: Crypto.Cipher.DES.new(...)
+      - pattern: Crypto.Cipher.ARC2.new(...)
+      - pattern: Crypto.Cipher.ARC4.new(...)
+      - pattern: Crypto.Cipher.Blowfish.new(...)
+    message: weak cipher (DES/RC2/RC4/Blowfish/XOR) — use AES-GCM or
+      ChaCha20.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B305, cwe: 327}
+
+  - id: python-paramiko-autoadd-policy
+    pattern-either:
+      - pattern: paramiko.AutoAddPolicy(...)
+      - pattern: paramiko.WarningPolicy(...)
+    message: SSH host-key verification disabled — MITM exposure on
+      first contact.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B507, cwe: 295}
+
+  - id: python-sql-injection-format
+    patterns:
+      - pattern-either:
+          - pattern: $X.$M("..." + ...)
+          - pattern: $X.$M("...".format(...), ...)
+          - pattern: $X.$M("..." % ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(execute|executemany|executescript)$"
+    message: SQL statement built by string formatting — injection risk;
+      use parameters.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B608, cwe: 89}
+
+  - id: python-xml-vulnerable-parser
+    pattern-either:
+      - pattern-regex: '^\s*(import|from)\s+xml\.(sax|dom\.minidom|dom\.pulldom|dom\.expatbuilder)\b'
+      - pattern: etree.$F(..., resolve_entities=True, ...)
+    message: XML parser vulnerable to entity-expansion/XXE — prefer
+      defusedxml or resolve_entities=False.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B405, cwe: 611}

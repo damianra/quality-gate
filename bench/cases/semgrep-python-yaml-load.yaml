@@ -1,0 +1,13 @@
+id: semgrep-python-yaml-load
+title: semgrep flags yaml.load without SafeLoader
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import yaml
+    cfg = yaml.load(open("c.yaml"))
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: python-unsafe-deserialize

@@ -1,0 +1,14 @@
+id: semgrep-go-file-perms
+title: semgrep flags permissive file mode
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "os"
+    func f() { os.WriteFile("a", []byte("x"), 0o777) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-file-permissive-perms

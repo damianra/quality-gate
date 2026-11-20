@@ -74,8 +74,16 @@ _SUPPRESS_RE = re.compile(
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
-#: Non-code extensions the `generic` semgrep rules still cover.
-_GENERIC_EXTS = frozenset({".sh", ".bash", ".zsh"})
+#: Non-code text surfaces where the `generic` semgrep rules live —
+#: config/data files carry curl|sh pipelines, private-key blocks and
+#: `!!python/object` payloads just like scripts do. Docs (.md/.txt)
+#: stay out: pattern-regex would flag prose that documents the
+#: patterns.
+_GENERIC_EXTS = frozenset({
+    ".sh", ".bash", ".zsh",
+    ".yaml", ".yml", ".env", ".conf", ".cfg", ".ini", ".toml",
+    ".json", ".xml",
+})
 
 #: Same fixture-path policy as the SecurityAgent secret signal.
 _TEST_PATH_RE = re.compile(
@@ -321,7 +329,12 @@ def _semgrep(repo: Path, files: list[str],
         sev = "warning" if str(
             extra.get("severity", "")).upper() == "ERROR" else "info"
         msg = str(extra.get("message") or hit.get("check_id", ""))[:160]
-        check_id = str(hit.get("check_id", "unknown"))[:80]
+        # Directory-config check_ids are path-namespaced
+        # (``opt.qg-rules.<id>`` / ``<pkgdir>.qg-rules.<id>``) — strip
+        # to the bare rule id; the vendored ruleset guarantees
+        # uniqueness (FR-O33 schema test).
+        check_id = str(hit.get("check_id", "unknown")
+                       ).rsplit(".", 1)[-1][:80]
         sline = start.get("line")
         findings.append(_finding(
             sev, f"semgrep:{check_id}", msg,
