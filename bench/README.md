@@ -46,8 +46,10 @@ uv run python bench/run.py -j 4 --json report.json --md report.md
 ```
 
 Exit code is non-zero when any executed case fails — wire it into a
-*periodic* CI job (weekly / on ruleset or scanner changes), not the
-per-PR gate: each sandbox case costs ~2 min of container work.
+*periodic* CI job, not the per-PR gate: each sandbox case costs ~2 min
+of container work. `.github/workflows/bench.yml` runs it weekly plus
+on PRs touching the corpus, ruleset or sandbox image, and uploads the
+JSON/markdown report as an artifact.
 
 `--include-llm` leaves `QG_LLM_*` in the environment so a configured
 provider enriches findings. Those runs are flagged `llm: true` and are

@@ -172,7 +172,8 @@ validators, the dependency audit and the functional stage:
 - **Golden-set benchmark (FR-O31)** — `bench/` replays a corpus of
   synthetic PRs (detection + adversarial + false-positive cases)
   through the real deterministic stages and reports per-tag detection
-  and unexpected findings; see `bench/README.md`.
+  and unexpected findings; see `bench/README.md`. `bench.yml` runs it
+  weekly (plus on corpus/ruleset/image PRs) inside the sandbox image.
 
 - **SARIF output (FR-O32)** — findings also write to
   `quality-gate.sarif` (SARIF 2.1.0, one run per agent;
