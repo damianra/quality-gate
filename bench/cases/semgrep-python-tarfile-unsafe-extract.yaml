@@ -1,0 +1,14 @@
+id: semgrep-python-tarfile-unsafe-extract
+title: semgrep flags tarfile extractall without filter
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  tools/unpack.py: |
+    import tarfile
+    t = tarfile.open("x.tar")
+    t.extractall("/tmp/out")
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-tarfile-unsafe-extract

@@ -1,0 +1,14 @@
+id: semgrep-python-bind-all-interfaces
+title: semgrep flags bind to 0.0.0.0
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  net/server.py: |
+    import socket
+    s = socket.socket()
+    s.bind(("0.0.0.0", 8080))
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-bind-all-interfaces

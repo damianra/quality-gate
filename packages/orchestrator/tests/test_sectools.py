@@ -245,7 +245,7 @@ def test_gitleaks_test_path_downgrades(tmp_path):
         _runner({"tool": "gitleaks", "res": _res(json.dumps(entries))}))
     hits = [f for f in out["findings"] if "Committed secret" in f["title"]]
     assert hits and hits[0]["severity"] == "warning"
-    assert "test file" in hits[0]["title"]
+    assert "fixture path" in hits[0]["title"]
 
 
 def test_trivy_single_spawn_target_filter(tmp_path):

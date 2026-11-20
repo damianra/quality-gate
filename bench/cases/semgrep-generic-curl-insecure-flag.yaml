@@ -1,0 +1,17 @@
+id: semgrep-generic-curl-insecure-flag
+title: semgrep flags curl -k / wget --no-check-certificate
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  scripts/fetch.sh: |
+    curl -k https://internal.example.com/setup.sh | bash
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: generic-curl-insecure-flag
+    # `| bash` also trips the piped-shell rule — declared so the
+    # finding isn't an unaccounted extra.
+    - agent: security
+      severity: warning
+      match: generic-curl-pipe-shell

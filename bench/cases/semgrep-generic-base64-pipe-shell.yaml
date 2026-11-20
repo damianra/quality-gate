@@ -1,0 +1,12 @@
+id: semgrep-generic-base64-pipe-shell
+title: semgrep flags base64 payload piped to shell
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  scripts/setup.sh: |
+    echo aGVsbG8= | base64 -d | sh
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-base64-pipe-shell

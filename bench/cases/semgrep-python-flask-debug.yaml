@@ -1,0 +1,14 @@
+id: semgrep-python-flask-debug
+title: semgrep flags flask app.run debug=True
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/main.py: |
+    from flask import Flask
+    app = Flask(__name__)
+    app.run(host="0.0.0.0", debug=True)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-flask-debug

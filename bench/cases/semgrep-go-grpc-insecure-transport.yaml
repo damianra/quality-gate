@@ -1,0 +1,14 @@
+id: semgrep-go-grpc-insecure-transport
+title: semgrep flags grpc insecure transport
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  internal/dial.go: |
+    package main
+    import "google.golang.org/grpc"
+    func d() { grpc.Dial("h:1", grpc.WithInsecure()) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-grpc-insecure-transport

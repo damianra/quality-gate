@@ -1,0 +1,15 @@
+id: semgrep-go-tls-min-version-weak
+title: semgrep flags tls MinVersion below 1.2
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  internal/tlsconf.go: |
+    package main
+    import "crypto/tls"
+    var c = &tls.Config{MinVersion: tls.VersionTLS10}
+    func main() {}
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: go-tls-min-version-weak

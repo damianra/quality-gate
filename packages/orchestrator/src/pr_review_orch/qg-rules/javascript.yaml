@@ -137,3 +137,81 @@ rules:
     languages: [javascript, typescript]
     severity: WARNING
     metadata: {source: nodejsscan, cwe: 89}
+
+  - id: js-implied-eval
+    pattern-either:
+      - pattern: setTimeout("...", ...)
+      - pattern: setInterval("...", ...)
+      - pattern: $W.setTimeout("...", ...)
+      - pattern: $W.setInterval("...", ...)
+      - pattern: execScript("...", ...)
+    message: string argument to setTimeout/setInterval is eval()'d —
+      use a function reference.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: qg, cwe: 95}
+
+  - id: js-vm-run-context
+    pattern-either:
+      - pattern: vm.runInThisContext(...)
+      - pattern: vm.runInNewContext(...)
+      - pattern: vm.runInContext(...)
+      - pattern: new vm.Script(...)
+    message: vm.runIn*/new Script compiles and runs code — injection
+      risk on dynamic input; contexts are not a security boundary.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 95}
+
+  - id: js-jwt-alg-none
+    pattern-either:
+      - pattern: 'jwt.verify(..., {algorithms: [..., "none", ...]}, ...)'
+      - pattern: 'jwt.verify(..., {algorithms: "none"}, ...)'
+    message: jwt.verify allowing alg "none" accepts unsigned tokens —
+      signature bypass.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: qg, cwe: 347}
+
+  - id: js-ssrf-taint
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query
+          - pattern: $REQ.params
+          - pattern: $REQ.body
+    pattern-sinks:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: axios.$M($URL, ...)
+          - pattern: request($URL, ...)
+          - pattern: got($URL, ...)
+    message: user-controlled request field reaches an outbound URL —
+      SSRF risk; validate against an allowlist.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 918}
+
+  - id: js-path-traversal-taint
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query
+          - pattern: $REQ.params
+          - pattern: $REQ.body
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fs.readFile($P, ...)
+              - pattern: fs.readFileSync($P, ...)
+              - pattern: fs.createReadStream($P, ...)
+              - pattern: fs.createWriteStream($P, ...)
+              - pattern: fs.writeFile($P, ...)
+              - pattern: fs.writeFileSync($P, ...)
+              - pattern: fs.unlink($P, ...)
+              - pattern: fs.readdir($P, ...)
+    message: user-controlled request field reaches a filesystem path —
+      path traversal; normalize and confine to a base directory.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 22}

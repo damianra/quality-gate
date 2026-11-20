@@ -186,3 +186,79 @@ rules:
     languages: [python]
     severity: WARNING
     metadata: {source: bandit, ref: B405, cwe: 611}
+
+  - id: python-flask-debug
+    pattern: $APP.run(..., debug=True, ...)
+    message: app.run(debug=True) — the Werkzeug debugger enables code
+      execution through the browser console.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B201, cwe: 489}
+
+  - id: python-bind-all-interfaces
+    pattern-either:
+      - pattern: $S.bind(("0.0.0.0", ...))
+      - pattern: $F(..., host="0.0.0.0", ...)
+      - pattern: $F(..., ("0.0.0.0", ...), ...)
+    message: binding to 0.0.0.0 exposes the service on every interface.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B104, cwe: 1327}
+
+  - id: python-requests-no-timeout
+    patterns:
+      - pattern: requests.$M(...)
+      - pattern-not: requests.$M(..., timeout=..., ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(get|post|put|delete|head|patch|options|request)$"
+    message: requests call without timeout — hangs forever on a stuck
+      peer.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B113, cwe: 400}
+
+  - id: python-tarfile-unsafe-extract
+    patterns:
+      - pattern-either:
+          - pattern: $T.extractall(...)
+          - pattern: tarfile.$F(...).extractall(...)
+      - pattern-not: $T.extractall(..., filter=..., ...)
+      - pattern-not: tarfile.$F(...).extractall(..., filter=..., ...)
+    message: tarfile.extractall without filter — member paths escape
+      the target directory (zip-slip).
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B202, cwe: 22}
+
+  - id: python-jinja2-autoescape-off
+    pattern-either:
+      - pattern: jinja2.Environment(..., autoescape=False, ...)
+      - pattern: jinja2.sandbox.SandboxedEnvironment(..., autoescape=False, ...)
+      - pattern: Environment(..., autoescape=False, ...)
+      - pattern: SandboxedEnvironment(..., autoescape=False, ...)
+    message: Jinja2 autoescape disabled — template output is unescaped,
+      XSS risk.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B701, cwe: 79}
+
+  - id: python-ftplib-cleartext
+    pattern-either:
+      - pattern: ftplib.FTP(...)
+      - pattern: FTP(...)
+    message: ftplib sends credentials and data in cleartext — use
+      FTP_TLS/SFTP instead.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B402, cwe: 319}
+
+  - id: python-telnetlib-cleartext
+    pattern-either:
+      - pattern: telnetlib.Telnet(...)
+      - pattern: Telnet(...)
+    message: telnet sends credentials and data in cleartext — use SSH
+      (paramiko) instead.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B401, cwe: 319}
