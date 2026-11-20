@@ -1,0 +1,16 @@
+id: semgrep-js-yaml-load
+title: semgrep flags js-yaml load()
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/config.js: |
+    const yaml = require("js-yaml");
+    function loadCfg(text) {
+      return yaml.load(text);
+    }
+    module.exports = { loadCfg };
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-yaml-load

@@ -1,0 +1,22 @@
+id: semgrep-js-command-injection-taint
+title: semgrep flags request field reaching a child_process command
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/tools.js: |
+    const cp = require("child_process");
+    const { exec } = require("child_process");
+    function thumb(req, res) {
+      const name = req.query.name;
+      cp.exec("convert " + name + " -resize 64 out.png");
+      res.send("ok");
+    }
+    function rotate(req, res) {
+      exec("mogrify " + req.params.f);
+    }
+    module.exports = { thumb, rotate };
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-command-injection-taint

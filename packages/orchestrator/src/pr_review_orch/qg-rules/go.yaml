@@ -177,3 +177,72 @@ rules:
     languages: [go]
     severity: WARNING
     metadata: {source: qg, cwe: 79}
+
+  - id: go-hardcoded-credentials
+    patterns:
+      - pattern-either:
+          - pattern: $NAME := "..."
+          - pattern: var $NAME = "..."
+          - pattern: var $NAME $T = "..."
+          - pattern: const $NAME = "..."
+          - pattern: const $NAME $T = "..."
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: "(?i).*(password|passwd|pwd|secret|token|api_?key|access_?key|credential).*"
+    message: credential-looking literal bound to a secret-named
+      identifier — move it to env vars or a secrets store.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G101, cwe: 798}
+
+  - id: go-bind-all-interfaces
+    patterns:
+      - pattern-either:
+          - pattern: net.$M($NET, $ADDR)
+          - pattern: http.$M($ADDR, ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(Listen|ListenTCP|ListenIP|ListenUDP|ListenAndServe|ListenAndServeTLS)$"
+      - metavariable-regex:
+          metavariable: $ADDR
+          regex: '^"0\.0\.0\.0:'
+    message: binding to 0.0.0.0 exposes the service on every
+      interface — bind a specific address unless that is intended.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G102, cwe: 1327}
+
+  - id: go-unsafe-usage
+    pattern-either:
+      - pattern: unsafe.$F(...)
+      - pattern-regex: '"unsafe"'
+    message: unsafe package use bypasses Go's memory-safety
+      guarantees — audit pointer conversions and size arithmetic.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G103, cwe: 676}
+
+  - id: go-pprof-import
+    pattern-regex: '_\s+"net/http/pprof"'
+    message: blank net/http/pprof import registers profiling
+      endpoints on DefaultServeMux — information and CPU DoS
+      exposure if it ships to production.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G108, cwe: 489}
+
+  - id: go-file-path-nonliteral
+    patterns:
+      - pattern: $X.$F($P, ...)
+      - metavariable-regex:
+          metavariable: $X
+          regex: "^(os|ioutil|filepath)$"
+      - metavariable-regex:
+          metavariable: $F
+          regex: "^(Open|OpenFile|ReadFile|Create|CreateTemp|Remove|RemoveAll|Walk|WalkDir)$"
+      - pattern-not: $X.$F("...", ...)
+    message: filesystem operation on a non-literal path — traversal
+      risk if user-controlled; clean and confine to a base dir.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G304, cwe: 22}

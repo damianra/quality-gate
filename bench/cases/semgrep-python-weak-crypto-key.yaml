@@ -1,0 +1,14 @@
+id: semgrep-python-weak-crypto-key
+title: semgrep flags an RSA key below 2048 bits
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/keys.py: |
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    def mint():
+        return rsa.generate_private_key(65537, 1024)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-weak-crypto-key

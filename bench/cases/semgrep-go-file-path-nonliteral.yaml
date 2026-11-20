@@ -1,0 +1,14 @@
+id: semgrep-go-file-path-nonliteral
+title: semgrep flags a filesystem read on a non-literal path
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  pkg/files/read.go: |
+    package files
+    import "os"
+    func Read(name string) ([]byte, error) { return os.ReadFile(name) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-file-path-nonliteral

@@ -1,0 +1,14 @@
+id: semgrep-python-urllib-open
+title: semgrep flags urllib urlopen on a variable URL
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/fetch.py: |
+    import urllib.request
+    def grab(target):
+        return urllib.request.urlopen(target)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-urllib-request-open

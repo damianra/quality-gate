@@ -1,0 +1,14 @@
+id: semgrep-python-random-insecure
+title: semgrep flags math PRNG used for a token
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/tokens.py: |
+    import random
+    def reset_code():
+        return random.randint(0, 999999)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-random-insecure

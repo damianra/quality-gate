@@ -1,0 +1,16 @@
+id: semgrep-generic-xml-xxe-entity
+title: semgrep flags an external entity declaration in XML
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  data/sample.xml: |
+    <?xml version="1.0"?>
+    <!DOCTYPE data [
+      <!ENTITY xxe SYSTEM "file:///etc/passwd">
+    ]>
+    <data>&xxe;</data>
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-xml-xxe-entity
