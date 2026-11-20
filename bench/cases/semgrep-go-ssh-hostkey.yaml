@@ -1,0 +1,14 @@
+id: semgrep-go-ssh-hostkey
+title: semgrep flags InsecureIgnoreHostKey
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "golang.org/x/crypto/ssh"
+    var cfg = &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: go-ssh-insecure-hostkey

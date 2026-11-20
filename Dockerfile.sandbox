@@ -33,5 +33,9 @@ RUN pip install --no-cache-dir uv pip-audit "semgrep==${SEMGREP_VERSION}" \
 # Same files the orchestrator package uses for the host fallback.
 COPY packages/orchestrator/src/pr_review_orch/qg-rules/ /opt/qg-rules/
 
+# FR-O33: a syntactically broken rule fails the build, not reviews —
+# --validate is offline (vendored config, no registry egress).
+RUN semgrep --validate --config /opt/qg-rules
+
 USER qg
 WORKDIR /src

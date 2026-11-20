@@ -1,0 +1,13 @@
+id: semgrep-python-ssl-obsolete
+title: semgrep flags obsolete TLS protocol
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import ssl
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: python-ssl-obsolete-protocol

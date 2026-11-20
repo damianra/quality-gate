@@ -1,0 +1,13 @@
+id: semgrep-python-xml-vulnerable
+title: semgrep flags vulnerable xml parser import
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import xml.dom.minidom
+    doc = xml.dom.minidom.parse("in.xml")
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-xml-vulnerable-parser

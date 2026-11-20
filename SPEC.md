@@ -1013,6 +1013,7 @@ volatile during early history edits; commits are identified by subject):
 | 93 | `docs`: FR-O32 SARIF output |
 | 94 | `feat(orchestrator)`: FR-O32 SARIF output |
 | 95 | `docs`: FR-O33 curated SAST ruleset expansion |
+| 96 | `feat(orchestrator)`: FR-O33 ruleset layout + provenance + 29-rule batch |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1092,7 +1093,8 @@ coverage under measurement, then governance and isolation.
   time. Note: GitHub code scanning needs GitHub Advanced Security
   on private repos (free on public) — the SARIF file itself is the
   portable artifact for any SARIF-aware consumer.
-- **FR-O33 Curated SAST ruleset expansion.** *(spec'd — §4.2)* `qg-rules/` grows from
+- **FR-O33 Curated SAST ruleset expansion.** *(in progress — §4.2;
+  first batch landed)* `qg-rules/` grows from
   the 12-rule seed to ~50–100 high-signal rules across the
   supported languages,
   ported from bandit (Python), gosec (Go) and NodeJSscan/

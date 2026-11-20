@@ -1,0 +1,12 @@
+id: semgrep-generic-wget-pipe
+title: semgrep flags wget|sh
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  scripts/wget_pipe.sh: |
+    wget https://install.example/x.sh | sudo bash
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: generic-wget-pipe-shell

@@ -1,0 +1,13 @@
+id: semgrep-python-chmod-permissive
+title: semgrep flags world-writable chmod
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import os
+    os.chmod("data.db", 0o777)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-chmod-permissive

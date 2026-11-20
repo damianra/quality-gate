@@ -1,0 +1,13 @@
+id: semgrep-js-node-serialize
+title: semgrep flags node-serialize unserialize
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    const s = require("node-serialize");
+    const obj = s.unserialize(req.body.blob);
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-node-serialize

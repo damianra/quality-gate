@@ -1,0 +1,12 @@
+id: semgrep-generic-yaml-python-object
+title: semgrep flags !!python/object tag
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  scripts/yaml_python.yaml: |
+    exploit: !!python/object/apply:os.system ["id"]
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: generic-yaml-python-object

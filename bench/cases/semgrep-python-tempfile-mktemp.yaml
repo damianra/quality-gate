@@ -1,0 +1,13 @@
+id: semgrep-python-tempfile-mktemp
+title: semgrep flags tempfile.mktemp
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/target.py: |
+    import tempfile
+    path = tempfile.mktemp()
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-tempfile-mktemp

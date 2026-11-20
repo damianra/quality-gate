@@ -1,0 +1,14 @@
+id: semgrep-go-math-rand
+title: semgrep flags math/rand for secrets
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "math/rand"
+    func token() int { return rand.Intn(1000000) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-math-rand-insecure

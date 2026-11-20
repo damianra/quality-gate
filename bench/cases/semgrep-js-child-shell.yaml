@@ -1,0 +1,14 @@
+id: semgrep-js-child-shell
+title: semgrep flags child_process shell:true
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    const {spawn, execFileSync} = require("child_process");
+    spawn(cmd, args, {shell: true});
+    execFileSync(cmd, {shell: true});
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-child-process-shell-true

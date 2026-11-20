@@ -1,0 +1,14 @@
+id: semgrep-go-weak-cipher
+title: semgrep flags DES cipher use
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/target.go: |
+    package main
+    import "crypto/des"
+    func f(k []byte) { des.NewCipher(k) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-weak-cipher

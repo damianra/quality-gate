@@ -1,0 +1,14 @@
+id: semgrep-js-dom-xss
+title: semgrep flags DOM XSS sinks
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/target.js: |
+    el.insertAdjacentHTML("beforeend", html);
+    el.outerHTML = payload;
+    document.write(x);
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-dom-xss-sinks
