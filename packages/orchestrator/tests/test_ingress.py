@@ -54,6 +54,13 @@ def client(monkeypatch):
     monkeypatch.setattr(
         ingress.fetch, "sweep_stale_worktrees", lambda: 0
     )
+    # run_queue stays env-independent: a live DATABASE_URL would make
+    # the lifespan recover() rows persisted by earlier tests and
+    # re-dispatch them into this fixture's `recorded`; unpatched posts
+    # would also hit real psycopg. Tests exercising the durable path
+    # re-enable + stub enqueue themselves (below).
+    monkeypatch.setattr(ingress.run_queue, "enabled", lambda: False)
+    monkeypatch.setattr(ingress.run_queue, "recover", lambda: [])
     recorded: list[tuple[str, dict]] = []
 
     async def fake_drain(sem, key, event):
