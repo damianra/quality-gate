@@ -1057,7 +1057,7 @@ volatile during early history edits; commits are identified by subject):
 | 96 | `feat(orchestrator)`: FR-O33 ruleset layout + provenance + 29-rule batch |
 | 97 | `ci`: bench corpus weekly workflow |
 | 98 | `feat(orchestrator)`: FR-O33 ruleset batch 2 (+21 rules, taint) |
-| 100 | `docs`: FR-O34 data governance + prompt redaction |
+| 99 | `docs`: FR-O34 data governance + prompt redaction |
 
 ## 11. Extension points (SDD backlog)
 
