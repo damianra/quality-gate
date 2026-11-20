@@ -288,7 +288,7 @@ rules:
                 ...
       - metavariable-regex:
           metavariable: $KW
-          regex: "(?i).*(password|passwd|pwd|secret|token|api_?key|access_?token|auth_?token).*"
+          regex: "(?i).*(password|passwd|pwd|secret|token|api_?key|access_?key|credential).*"
     message: credential-looking literal as a keyword default — callers
       inherit the hardcoded secret.
     languages: [python]
