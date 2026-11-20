@@ -59,7 +59,10 @@ def test_file_and_line_become_location():
     assert loc["region"]["startLine"] == 42
     loc = results[1]["locations"][0]["physicalLocation"]
     assert "region" not in loc
-    assert "locations" not in results[2]
+    # File-less findings anchor at "." — code scanning requires a
+    # location on every result.
+    assert (results[2]["locations"][0]["physicalLocation"]
+            ["artifactLocation"]["uri"] == ".")
     assert "region" not in results[3]["locations"][0]["physicalLocation"]
     assert "region" not in results[4]["locations"][0]["physicalLocation"]
 
