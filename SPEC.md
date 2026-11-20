@@ -800,6 +800,56 @@ duration lands in `node_durations`.
     already seen by the provider) and detecting shapes outside
     the corpus — the corpus is intentionally small and
     auditable, not a second gitleaks.
+- **FR-O35 Kernel-level sandbox isolation.** `QG_SANDBOX` gains a
+  `runsc` (alias `gvisor`) value — extending the existing
+  selector, not a second knob — that keeps the FR-O28 engine
+  autodetect (podman/docker) but passes `--runtime=runsc` at
+  container creation: every short-lived `container run`, and
+  the `run`/`create` that starts a long-lived `qg-<run>`
+  sandbox under the exec model (`container exec` takes no
+  runtime flag — the OCI runtime binds at creation). Payloads
+  then execute under gVisor's userspace kernel instead of
+  runc/crun. The rest of the isolation contract is unchanged —
+  `--network none`, read-only rootfs, non-root +
+  `no-new-privileges` + `--cap-drop ALL`, resource caps, the
+  env whitelist and the `qg-*` kill/sweep nets all apply
+  identically; gVisor replaces the syscall boundary, not the
+  container mechanics. `runsc` unusable — binary missing, or
+  the engine cannot resolve the `runsc` runtime name (docker
+  needs it registered in `daemon.json`, podman via
+  `containers.conf` or a runtime path) — falls back to the
+  plain engine sandbox (runc) with a **warning** finding,
+  never the host path and never a run failure: a silent host
+  fallback would defeat the stronger-isolation intent of the
+  mode. If no engine resolves at all under `runsc` mode the
+  FR-O28 host fallback still applies — never a run failure —
+  but is reported as a **warning** finding too, since all
+  sandbox isolation is lost, not just the kernel boundary.
+  - **Seccomp evaluation.** A vendored custom seccomp profile is
+    assessed at implementation time (`--security-opt
+    seccomp=<file>`); under gVisor the sentry already mediates
+    the syscall surface, so the profile ships only if it
+    demonstrably adds value — the evaluation note records the
+    decision either way.
+  - **Threat model.** `docs/sandbox-threat-model.md` states
+    which class of hostile PR code the stage tolerates
+    executing: arbitrary code execution inside the sandbox is
+    assumed by design, so isolation targets
+    kernel-exploit/container-escape payloads, network egress
+    and host-filesystem damage — not secrecy from an attacker
+    who already controls the payload. The model also states
+    what sits outside it: engine/daemon CVEs pre-runsc, the
+    image build itself and the host-side client.
+  - **Validation gate.** The value is wired and spec'd first;
+    it is advertised (READMEs, `.env.example`) only after the
+    full `uv run pytest packages -q` suite plus the bench
+    corpus pass with sandboxed executions under `runsc` — the
+    same evidence bar the FR-O28 contract was proven against.
+  - **Out of scope.** Replacing podman/docker, nested
+    virtualization fallback when gVisor cannot run (KVM-less
+    hosts use the ptrace platform — documented in the threat
+    model), and extending `runsc` to the sandboxed scanners'
+    image build (the build stays on the host engine).
 
 ## 5. Non-functional requirements
 
@@ -1059,6 +1109,7 @@ volatile during early history edits; commits are identified by subject):
 | 98 | `feat(orchestrator)`: FR-O33 ruleset batch 2 (+21 rules, taint) |
 | 99 | `docs`: FR-O34 data governance + prompt redaction |
 | 100 | `feat(orchestrator)`: FR-O34 redaction pass + data-handling doc |
+| 101 | `docs`: FR-O35 kernel-level sandbox isolation |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1162,16 +1213,17 @@ coverage under measurement, then governance and isolation.
   separate detection step at prompt-build time); a data-handling
   doc states what leaves the host, which endpoints are reachable
   and how to disable LLM egress entirely.
-- **FR-O35 Kernel-level sandbox isolation.** `QG_SANDBOX` gains a
-  `runsc`/`gvisor` value (extending the existing selector rather
-  than adding a second one) that passes `--runtime=runsc` through
-  the podman/docker engine — gVisor replaces runc/crun, not the
-  engine. A custom seccomp profile is evaluated at implementation
-  time — under gVisor the syscall surface is already mediated by
-  the sentry, so its marginal value is likely small — plus a
-  documented threat model (what class of hostile PR code the
-  stage tolerates executing). The full test suite must pass inside gVisor before
-  the option is advertised.
+- **FR-O35 Kernel-level sandbox isolation.** *(specced — §4.2)*
+  `QG_SANDBOX` gains a `runsc`/`gvisor` value (extending the
+  existing selector rather than adding a second one) that passes
+  `--runtime=runsc` through the podman/docker engine — gVisor
+  replaces runc/crun, not the engine. A custom seccomp profile
+  is evaluated at implementation time — under gVisor the syscall
+  surface is already mediated by the sentry, so its marginal
+  value is likely small — plus a documented threat model (what
+  class of hostile PR code the stage tolerates executing). The
+  full test suite must pass inside gVisor before the option is
+  advertised.
 
 ## 12. Contribution conventions (normative)
 
