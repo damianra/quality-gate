@@ -1,0 +1,12 @@
+id: semgrep-generic-chmod-world-writable
+title: semgrep flags chmod world-writable
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  scripts/install.sh: |
+    chmod -R 777 /var/www/data
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-chmod-world-writable

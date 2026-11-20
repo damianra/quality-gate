@@ -1,0 +1,13 @@
+id: semgrep-js-vm-run-context
+title: semgrep flags vm.runIn* code exec
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/vmexec.js: |
+    const vm = require("vm");
+    vm.runInThisContext(userCode);
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-vm-run-context

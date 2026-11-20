@@ -1,0 +1,17 @@
+id: semgrep-js-ssrf-taint
+title: semgrep flags request field reaches outbound URL (SSRF)
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/proxy.js: |
+    const axios = require("axios");
+    async function h(req, res) {
+      const u = req.query.url;
+      const r = await axios.get(u);
+      res.send(r.data);
+    }
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-ssrf-taint

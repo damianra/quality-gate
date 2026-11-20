@@ -1,0 +1,13 @@
+id: semgrep-python-jinja2-autoescape-off
+title: semgrep flags jinja2 autoescape disabled
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/render.py: |
+    import jinja2
+    env = jinja2.Environment(autoescape=False)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-jinja2-autoescape-off

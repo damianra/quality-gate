@@ -34,3 +34,35 @@ rules:
     languages: [generic]
     severity: ERROR
     metadata: {source: qg, cwe: 502}
+
+  - id: generic-curl-insecure-flag
+    pattern-regex: '\b(curl\b[^\n|]*\s(-k|--insecure)\b|wget\b[^\n|]*\s--no-check-certificate\b)'
+    message: curl -k / wget --no-check-certificate disables TLS
+      verification — MITM exposure.
+    languages: [generic]
+    severity: ERROR
+    metadata: {source: qg, cwe: 295}
+
+  - id: generic-base64-pipe-shell
+    pattern-regex: '\bbase64\s+(-d|--decode|di?)\b[^|\n]*\|\s*(ba|z|fi|da)?sh\b'
+    message: base64 payload decoded into a shell — obfuscated command
+      execution.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 78}
+
+  - id: generic-chmod-world-writable
+    pattern-regex: '\bchmod\s+(-[a-zA-Z]+\s+)*(0?777|a\+rwx|[augo]{1,3}\+o?\+?[rwx]*w)\b'
+    message: chmod making files world-writable (777/a+rwx/+w) —
+      permissive mode invites tampering.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 732}
+
+  - id: generic-ssh-permit-root
+    pattern-regex: '(?i)^\s*PermitRootLogin\s+(yes|true)\b'
+    message: sshd permits direct root login — disable and use a
+      named account + sudo instead.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 250}

@@ -25,7 +25,8 @@ _SEVERITIES = {"INFO", "WARNING", "ERROR"}
 _LANGUAGES = {"python", "javascript", "typescript", "go", "generic"}
 _ID_RE = re.compile(r"^(python|js|go|generic)-[a-z0-9]+(-[a-z0-9]+)*$")
 _PATTERN_KEYS = {"pattern", "patterns", "pattern-either",
-                "pattern-regex", "pattern-inside"}
+                "pattern-regex", "pattern-inside",
+                "pattern-sources", "pattern-sinks"}
 
 
 def _rules() -> list[dict]:

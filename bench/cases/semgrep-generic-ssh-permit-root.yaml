@@ -1,0 +1,13 @@
+id: semgrep-generic-ssh-permit-root
+title: semgrep flags sshd PermitRootLogin yes
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  config/sshd_config: |
+    Port 22
+    PermitRootLogin yes
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-ssh-permit-root

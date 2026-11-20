@@ -1,0 +1,12 @@
+id: semgrep-js-implied-eval
+title: semgrep flags setTimeout string arg (implied eval)
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/timers.js: |
+    setTimeout("alert(1)", 100);
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-implied-eval

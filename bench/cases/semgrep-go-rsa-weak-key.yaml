@@ -1,0 +1,14 @@
+id: semgrep-go-rsa-weak-key
+title: semgrep flags rsa key under 2048 bits
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  internal/keys.go: |
+    package main
+    import ("crypto/rand"; "crypto/rsa")
+    func k() { rsa.GenerateKey(rand.Reader, 1024) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-rsa-weak-key

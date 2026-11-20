@@ -120,3 +120,60 @@ rules:
     languages: [go]
     severity: WARNING
     metadata: {source: gosec, ref: G404, cwe: 330}
+
+  - id: go-tls-min-version-weak
+    pattern-either:
+      - pattern: 'tls.Config{..., MinVersion: tls.VersionSSL30, ...}'
+      - pattern: 'tls.Config{..., MinVersion: tls.VersionTLS10, ...}'
+      - pattern: 'tls.Config{..., MinVersion: tls.VersionTLS11, ...}'
+    message: TLS MinVersion below 1.2 accepts broken protocol versions.
+    languages: [go]
+    severity: ERROR
+    metadata: {source: gosec, ref: G402, cwe: 326}
+
+  - id: go-rsa-weak-key
+    patterns:
+      - pattern: rsa.GenerateKey($R, $BITS)
+      - metavariable-comparison:
+          metavariable: $BITS
+          comparison: $BITS < 2048
+    message: RSA key under 2048 bits — below current minimums.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: qg, cwe: 326}
+
+  - id: go-http-server-no-timeout
+    pattern-either:
+      - pattern: http.ListenAndServe(...)
+      - pattern: http.ListenAndServeTLS(...)
+      - pattern: http.Serve(...)
+      - pattern: http.ServeTLS(...)
+    message: http server without read/write timeouts — Slowloris DoS
+      exposure; use an http.Server with ReadHeaderTimeout set.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: gosec, ref: G114, cwe: 400}
+
+  - id: go-grpc-insecure-transport
+    pattern-either:
+      - pattern: grpc.WithInsecure()
+      - pattern: grpc.WithTransportCredentials(insecure.NewCredentials())
+    message: gRPC transport without TLS — credentials and payloads go
+      in cleartext.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: qg, cwe: 319}
+
+  - id: go-template-html-bypass
+    pattern-either:
+      - pattern: template.HTML(...)
+      - pattern: template.HTMLAttr(...)
+      - pattern: template.JS(...)
+      - pattern: template.URL(...)
+      - pattern: template.CSS(...)
+      - pattern: template.Srcset(...)
+    message: template.* conversion bypasses contextual autoescaping —
+      XSS risk on untrusted data.
+    languages: [go]
+    severity: WARNING
+    metadata: {source: qg, cwe: 79}

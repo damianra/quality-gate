@@ -1,0 +1,16 @@
+id: semgrep-js-path-traversal-taint
+title: semgrep flags request field reaches fs path
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/files.js: |
+    const fs = require("fs");
+    function h(req, res) {
+      const p = req.params.name;
+      fs.readFileSync("/srv/files/" + p);
+    }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-path-traversal-taint

@@ -1,0 +1,13 @@
+id: semgrep-python-ftplib-cleartext
+title: semgrep flags ftplib cleartext
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  tools/upload.py: |
+    import ftplib
+    c = ftplib.FTP("ftp.example.com")
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-ftplib-cleartext

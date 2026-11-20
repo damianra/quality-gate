@@ -76,18 +76,21 @@ _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 #: Non-code text surfaces where the `generic` semgrep rules live —
 #: config/data files carry curl|sh pipelines, private-key blocks and
-#: `!!python/object` payloads just like scripts do. Docs (.md/.txt)
-#: stay out: pattern-regex would flag prose that documents the
-#: patterns.
+#: `!!python/object` payloads just like scripts do. The empty suffix
+#: covers extensionless files (Makefile, sshd_config, install scripts,
+#: .envrc) — semgrep skips binaries itself. Docs (.md/.txt) stay out:
+#: pattern-regex would flag prose that documents the patterns.
 _GENERIC_EXTS = frozenset({
     ".sh", ".bash", ".zsh",
     ".yaml", ".yml", ".env", ".conf", ".cfg", ".ini", ".toml",
-    ".json", ".xml",
+    ".json", ".xml", "",
 })
 
-#: Same fixture-path policy as the SecurityAgent secret signal.
-_TEST_PATH_RE = re.compile(
-    r"(?:^|/)(?:tests?|__tests__|__mocks__|fixtures?|mocks?)(?:/|$)"
+#: Same fixture-path policy as the SecurityAgent secret signal
+#: (`agents._FIXTURE_PATH_RE`): `bench/` included because benchmark
+#: corpora plant credential-looking payloads on purpose.
+_FIXTURE_PATH_RE = re.compile(
+    r"(?:^|/)(?:tests?|__tests__|__mocks__|fixtures?|mocks?|bench)(?:/|$)"
     r"|\.(?:test|spec)\.[a-z0-9]+$"
     r"|(?:^|/)test_[a-z0-9_]+\.[a-z0-9]+$",
     re.IGNORECASE,
@@ -417,10 +420,10 @@ def _gitleaks(repo: Path, changed: set[str],
         e.pop("Match", None)
         fp = hashlib.sha256(secret.encode()).hexdigest()[:8]
         hint = f" (sha256:{fp}…)" if secret else ""
-        in_test = bool(_TEST_PATH_RE.search(f))
+        fixture = bool(_FIXTURE_PATH_RE.search(f))
         findings.append(_finding(
-            "warning" if in_test else "blocker",
-            "Committed secret" + (" (test file)" if in_test else ""),
+            "warning" if fixture else "blocker",
+            "Committed secret" + (" (fixture path)" if fixture else ""),
             f"gitleaks:{rule} matched an added line — verify "
             f"and rotate if real{hint}.",
             file=f, line=line))

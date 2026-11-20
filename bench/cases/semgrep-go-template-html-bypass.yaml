@@ -1,0 +1,15 @@
+id: semgrep-go-template-html-bypass
+title: semgrep flags template.* escape bypass
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  internal/render.go: |
+    package main
+    import "html/template"
+    var x = template.HTML(userInput)
+    func main() {}
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-template-html-bypass

@@ -1,0 +1,14 @@
+id: semgrep-go-http-server-no-timeout
+title: semgrep flags http server without timeouts
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/serve.go: |
+    package main
+    import "net/http"
+    func main() { http.ListenAndServe(":8080", nil) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-http-server-no-timeout

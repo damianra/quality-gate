@@ -1,0 +1,13 @@
+id: semgrep-python-requests-no-timeout
+title: semgrep flags requests call without timeout
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/client.py: |
+    import requests
+    r = requests.get("https://api.example.com/data")
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-requests-no-timeout

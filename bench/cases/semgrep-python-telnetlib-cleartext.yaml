@@ -1,0 +1,13 @@
+id: semgrep-python-telnetlib-cleartext
+title: semgrep flags telnetlib cleartext
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  tools/mgmt.py: |
+    import telnetlib
+    t = telnetlib.Telnet("router.local")
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-telnetlib-cleartext
