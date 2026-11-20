@@ -180,7 +180,9 @@ funcional:
 - **Benchmark golden-set (FR-O31)** — `bench/` reejecuta un corpus de
   PRs sintéticos (casos de detección + adversarios + falsos positivos)
   contra las etapas deterministas reales y reporta detección por tag y
-  findings inesperados; ver `bench/README.md`.
+  findings inesperados; ver `bench/README.md`. `bench.yml` lo corre
+  semanalmente (y en PRs de corpus/ruleset/imagen) dentro de la imagen
+  sandbox.
 
 - **Salida SARIF (FR-O32)** — los findings también se escriben a
   `quality-gate.sarif` (SARIF 2.1.0, un `run` por agente;

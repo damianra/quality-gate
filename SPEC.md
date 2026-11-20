@@ -1014,6 +1014,7 @@ volatile during early history edits; commits are identified by subject):
 | 94 | `feat(orchestrator)`: FR-O32 SARIF output |
 | 95 | `docs`: FR-O33 curated SAST ruleset expansion |
 | 96 | `feat(orchestrator)`: FR-O33 ruleset layout + provenance + 29-rule batch |
+| 97 | `ci`: bench corpus weekly workflow |
 
 ## 11. Extension points (SDD backlog)
 
