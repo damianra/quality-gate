@@ -100,6 +100,30 @@ def test_empty_and_none_safe() -> None:
     assert redact("") == ("", 0)
 
 
+@pytest.mark.parametrize("snippet,kind", [
+    ('password = "AKIAIOSFODNN7EXAMPLE"', "aws-access-key"),
+    ('api_key = "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"',
+     "github-token"),
+    ('token = "xoxb-123456789012-abcdefghijkl"', "slack-token"),
+])
+def test_shaped_secret_in_assignment_counts_once(
+    snippet: str, kind: str,
+) -> None:
+    # The credential-ish name would also fire the generic rule —
+    # the shaped label must win and the count stay at 1.
+    out, n = redact(snippet)
+    assert n == 1
+    assert f"[REDACTED:{kind}]" in out
+
+
+def test_redact_is_idempotent() -> None:
+    text = 'password = "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS"'
+    once, n = redact(text)
+    twice, n2 = redact(once)
+    assert n == 1 and n2 == 0
+    assert twice == once
+
+
 def test_entropy_gate_calibration() -> None:
     assert _entropy("xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS") > 3.3
     assert _entropy("changeme123") < 3.3

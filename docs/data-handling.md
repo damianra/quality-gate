@@ -63,7 +63,10 @@ Inside `LLMConfig.complete_with_meta` — the single funnel every call
 
 Matches become `[REDACTED:<kind>]`; the secret text is never logged,
 stored or returned. The `llm_calls` audit record carries a
-`redactions` count proving the pass ran (absent = disabled).
+`redactions` count proving the pass ran (absent = disabled). One gap:
+a call that raises *after* scrubbing records an error entry with no
+meta, so its `redactions` is absent even though the payload was
+scrubbed — the count certifies completed calls, not attempts.
 
 **Debug-only opt-out:** `QG_LLM_REDACT=0` — accepts the role suffix
 (`QG_LLM_REDACT_SECURITY=0` disables it for the security role only).

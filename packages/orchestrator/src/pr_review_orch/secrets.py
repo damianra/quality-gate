@@ -52,10 +52,13 @@ _ASSIGN_RE = re.compile(
 )
 
 #: Values that pass the entropy floor but are obviously not real
-#: secrets — documentation placeholders and self-describing fakes.
+#: secrets — documentation placeholders, self-describing fakes and
+#: our own ``[REDACTED:…]`` markers (a shaped secret inside a
+#: credential-ish assignment must not re-fire the generic rule —
+#: keeps the count at 1 and the pass idempotent).
 _PLACEHOLDER_RE = re.compile(
     r"(?i)^(?:change|example|test|your|fake|dummy|sample|placeholder|"
-    r"redacted|xxx+|<|\$\{|\*\*)"
+    r"redacted|xxx+|<|\$\{|\*\*|\[\s*redacted)"
 )
 
 #: High-signal token shapes; the whole match is replaced. Ordered —
