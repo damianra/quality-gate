@@ -8,6 +8,7 @@ permissions:
   pull-requests: write
   issues: write
   contents: read
+  security-events: write   # FR-O32 SARIF upload; downgraded to read on fork PRs
 
 concurrency:
   group: pr-review-${{ github.event.pull_request.number }}
@@ -75,6 +76,17 @@ jobs:
             python -m pr_review_orch \
             --repo-path "$REPO_PATH" \
             --pr-number "$PR_NUMBER"
+
+      # Advisory (FR-O32): findings as PR line annotations + Security-tab
+      # entries. Never gates the review — a failed upload (missing GHAS on
+      # private repos, forked-PR permission downgrade) is tolerated.
+      - name: Upload findings to code scanning
+        if: always() && hashFiles('quality-gate.sarif') != ''
+        continue-on-error: true
+        uses: codeql-action/upload-sarif@v4
+        with:
+          sarif_file: quality-gate.sarif
+          category: quality-gate
 
       - name: Assert no orphan processes remain
         if: always()

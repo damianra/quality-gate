@@ -99,7 +99,8 @@ def autodetect(repo: Path) -> list[dict[str, Any]]:
 
 def _finding(severity: str, title: str, detail: str) -> dict[str, Any]:
     return {"agent": "functional", "severity": severity,
-            "title": title, "detail": detail, "file": None}
+            "title": title, "detail": detail, "file": None,
+            "line": None}
 
 
 def run_functional(repo: Path) -> dict[str, Any]:

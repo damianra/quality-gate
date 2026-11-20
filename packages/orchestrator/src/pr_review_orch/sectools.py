@@ -91,10 +91,12 @@ _TARGET_PREFIXES = ("./", "/src/", "/")
 
 
 def _finding(severity: str, title: str, detail: str,
-             file: str | None = None) -> dict[str, Any]:
+             file: str | None = None,
+             line: int | None = None) -> dict[str, Any]:
     return {"agent": "security", "severity": severity, "title": title,
             "detail": detail,
-            "file": file[:200] if isinstance(file, str) else file}
+            "file": file[:200] if isinstance(file, str) else file,
+            "line": line}
 
 
 def added_line_ranges(diff_text: str) -> dict[str, set[int]]:
@@ -320,10 +322,11 @@ def _semgrep(repo: Path, files: list[str],
             extra.get("severity", "")).upper() == "ERROR" else "info"
         msg = str(extra.get("message") or hit.get("check_id", ""))[:160]
         check_id = str(hit.get("check_id", "unknown"))[:80]
+        sline = start.get("line")
         findings.append(_finding(
-            sev, f"semgrep:{check_id}",
-            f"line {start.get('line', '?')}: {msg}",
-            file=_repo_path(str(hit.get("path", ""))) or None))
+            sev, f"semgrep:{check_id}", msg,
+            file=_repo_path(str(hit.get("path", ""))) or None,
+            line=sline if type(sline) is int and sline > 0 else None))
     out["findings"] += _cap(findings, "semgrep")
 
 
@@ -405,9 +408,9 @@ def _gitleaks(repo: Path, changed: set[str],
         findings.append(_finding(
             "warning" if in_test else "blocker",
             "Committed secret" + (" (test file)" if in_test else ""),
-            f"gitleaks:{rule} matched an added line {line} — verify "
+            f"gitleaks:{rule} matched an added line — verify "
             f"and rotate if real{hint}.",
-            file=f))
+            file=f, line=line))
     if dropped_no_ranges:
         out["findings"].append(_finding(
             "info", "gitleaks coverage gap",
@@ -460,14 +463,15 @@ def _trivy(repo: Path, iac_files: set[str],
             meta = mc.get("CauseMetadata")
             line = meta.get("StartLine") if isinstance(meta, dict) \
                 else None
-            loc = f"line {line}: " if line else ""
             mc_id = str(mc.get("ID") or mc.get("AVDID")
                         or "misconfig")[:80]
             findings.append(_finding(
                 mapped,
                 f"trivy:{mc_id}",
-                f"{loc}{str(mc.get('Title') or '')[:140]}",
-                file=rel))
+                f"{str(mc.get('Title') or '')[:140]}",
+                file=rel,
+                line=line if type(line) is int and line > 0
+                else None))
     out["findings"] += _cap(findings, "trivy")
 
 
@@ -572,9 +576,9 @@ def _counter_scan(repo: Path, pr_files: set[str],
             continue
         directives.append(_finding(
             "info", "Suppression directive present",
-            f"`{rel}:{lineno}` carries a scanner-suppression marker "
+            f"`{rel}` carries a scanner-suppression marker "
             "pre-existing in the tree — findings it mutes are "
-            "invisible.", file=rel))
+            "invisible.", file=rel, line=lineno))
     out["findings"] += _cap(directives, "counter-scan")
 
 

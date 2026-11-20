@@ -177,6 +177,13 @@ funcional:
   contra las etapas deterministas reales y reporta detección por tag y
   findings inesperados; ver `bench/README.md`.
 
+- **Salida SARIF (FR-O32)** — los findings también se escriben a
+  `quality-gate.sarif` (SARIF 2.1.0, un `run` por agente;
+  `QG_SARIF_PATH`, `off` lo desactiva). `pr-review.yml` lo sube a
+  code scanning, así los findings aparecen como anotaciones de línea
+  en el PR y entradas en la pestaña Security — solo advisory, nunca
+  una segunda compuerta.
+
 ## Variables de entorno
 
 Copiá `.env.example` a `.env` (ignorado por git) y completá los valores —

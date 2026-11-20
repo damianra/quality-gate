@@ -961,6 +961,7 @@ volatile during early history edits; commits are identified by subject):
 | 91 | `feat`: FR-O31 golden-set benchmark harness + initial corpus |
 | 92 | `fix(orchestrator)`: post-merge review hardening for FR-O31 |
 | 93 | `docs`: FR-O32 SARIF output |
+| 94 | `feat(orchestrator)`: FR-O32 SARIF output |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1027,7 +1028,8 @@ coverage under measurement, then governance and isolation.
   cases; an adversarial subset replays the suppression/evasion
   attacks FR-O29/FR-O30 defend against. Runs in a periodic CI job,
   not per-PR.
-- **FR-O32 SARIF output.** *(spec'd — §4.2)* Findings convert to SARIF 2.1.0 `runs`
+- **FR-O32 SARIF output.** *(implemented — §4.2, `sarif.py` +
+  `upload-sarif`)* Findings convert to SARIF 2.1.0 `runs`
   (one per agent — the §6.3 schema has no tool discriminator
   unless one is added) via a small `sarif.py` module; the finding
   schema (§6.3) gains an explicit `line` field (today it lives

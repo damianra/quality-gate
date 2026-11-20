@@ -170,6 +170,12 @@ validators, the dependency audit and the functional stage:
   through the real deterministic stages and reports per-tag detection
   and unexpected findings; see `bench/README.md`.
 
+- **SARIF output (FR-O32)** — findings also write to
+  `quality-gate.sarif` (SARIF 2.1.0, one run per agent;
+  `QG_SARIF_PATH`, `off` disables). `pr-review.yml` uploads it to
+  code scanning, so findings surface as PR line annotations and
+  Security-tab entries — advisory only, never a second gate.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` (gitignored) and fill in the values — it lists
