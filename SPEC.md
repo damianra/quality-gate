@@ -759,6 +759,47 @@ duration lands in `node_durations`.
     after the ruleset `COPY` (verified against the pinned
     `SEMGREP_VERSION`, no egress) so a syntactically broken rule
     fails the image build, not reviews.
+- **FR-O34 Data governance + prompt redaction.** The provider
+  knob set (`QG_LLM_PROVIDER`/`QG_LLM_BASE_URL`/`QG_LLM_MODEL`
+  plus the role-scoped `QG_LLM_*_<ROLE>` overrides, FR-O13/O15)
+  already lets operators point at Ollama or any
+  OpenAI-compatible endpoint — the missing control is provable
+  limits on what leaves the host and a document stating them.
+  - **Redaction pass.** Every string bound for a provider —
+    specialist user prompts (FR-O16), the harness digest
+    (FR-O16a) and the system prompt — is scrubbed inside
+    `LLMConfig.complete_with_meta`, the single egress funnel all
+    providers share (HTTP bodies and devin-cli argv alike),
+    before the request payload is built. Detection lives in a
+    `secrets.py` module as a vendored regex corpus: key-shape
+    rules (AWS `AKIA…`, GitHub `gh[pousr]_`/`github_pat_`,
+    `sk-…`/`sk-ant-…`, Slack `xox…-`, GCP `AIza…`, PEM
+    private-key blocks, JWTs) plus an entropy-gated
+    `<name> = "<value>"` assignment rule for unshaped
+    credentials. It is deliberately independent of the gitleaks
+    pass — FR-O29 findings carry one-way fingerprints only —
+    so redaction never depends on a scanner having run: an
+    unscanned role call is still scrubbed. Matches become
+    `[REDACTED:<kind>]`; the secret text is never logged,
+    stored or returned. Each `llm_calls` record gains a
+    `redactions` count so the audit trail proves the pass ran;
+    `QG_LLM_REDACT=0` is the debug-only kill switch.
+  - **Data-handling doc.** `docs/data-handling.md` states what
+    leaves the host per role (bounded diff/body/files/signals
+    payloads — the `QG_PROMPT_*` caps are the budget), which
+    endpoints are reachable per provider (default base URLs
+    plus `QG_LLM_BASE_URL`), that `devin-cli` hands the same
+    payload to a local agent process instead of an HTTP
+    endpoint, and the kill switches: unset `QG_LLM_PROVIDER`
+    for zero LLM egress (the review still runs
+    deterministically) and `QG_SANDBOX_ALLOW_NET=0` for the
+    sandbox lane.
+  - **Out of scope.** Provider-side retention/telemetry
+    policies (called out in the doc as operator
+    responsibility), redacting *responses* (they arrive
+    already seen by the provider) and detecting shapes outside
+    the corpus — the corpus is intentionally small and
+    auditable, not a second gitleaks.
 
 ## 5. Non-functional requirements
 
@@ -867,7 +908,7 @@ All via env vars; `.env.example` is the canonical template.
 | Group | Vars |
 |---|---|
 | Required | `GITHUB_TOKEN`, `PR_NUMBER` (runtime), `REPO_UNDER_TEST` (compose) |
-| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28), `QG_SEC_TOOLS`, `QG_SEC_TOOL_TIMEOUT`, `QG_SEC_MAX_FINDINGS` (FR-O29), `QG_SARIF_PATH` (FR-O32) |
+| Orchestrator | `DATABASE_URL`, `REPO_PATH`, `DRY_RUN`, `QG_CLEANUP_GRACE_SECONDS`, `QG_QA_PROCESS_TIMEOUT`, `QG_MAX_FILES_PAGES`, `QG_SCOPE_MAX_FILES`, `QG_SCOPE_MAX_CHARS`, `QG_PROMPT_MAX_DIFF_CHARS`, `QG_PROMPT_MAX_FILES_CHARS`, `QG_PROMPT_MAX_BODY_CHARS`, `QG_PROMPT_MAX_AGENTS_CHARS`, `QG_RELATED_HEAD_FILES`, `QG_RELATED_HEAD_CHARS`, `QG_CHECKLIST_MAX_ITEMS`, `QG_DEP_AUDIT`, `QG_AUDIT_PROCESS_TIMEOUT`, `QG_PR_REVIEW_ACTION` (FR-O26), `QG_PG_PORT` (compose, FR-P34), `QG_SANDBOX`, `QG_SANDBOX_IMAGE`, `QG_SANDBOX_ALLOW_NET`, `QG_SANDBOX_MEMORY`, `QG_SANDBOX_CPUS`, `QG_SANDBOX_PIDS`, `QG_SANDBOX_ENV_ALLOW`, `QG_SANDBOX_EXEC_MAX_CALLS`, `QG_SANDBOX_EXEC_ALLOW`, `QG_FUNC_TIMEOUT`, `QG_FUNC_MAX_STEPS` (FR-O28), `QG_SEC_TOOLS`, `QG_SEC_TOOL_TIMEOUT`, `QG_SEC_MAX_FINDINGS` (FR-O29), `QG_SARIF_PATH` (FR-O32), `QG_LLM_REDACT` (FR-O34) |
 | MCP server | `GITHUB_API_URL`, `QG_PROCESS_TIMEOUT`, `QG_GIT_TIMEOUT`, `QG_RG_TIMEOUT`, `QG_HTTP_TIMEOUT`, `QG_KILL_GRACE_SECONDS`, `QG_LARGE_DIFF_FILES`, `QG_LARGE_DIFF_LINES`, `QG_COMMENTED_BLOCK_MIN`, `QG_WHITESPACE_RATIO_THRESHOLD`, `QG_LOG_LEVEL` |
 | LLM (optional) | `QG_LLM_PROVIDER`, `QG_LLM_MODEL`, `QG_LLM_API_KEY`, `QG_LLM_BASE_URL`, `QG_LLM_TEMPERATURE`, `QG_LLM_TIMEOUT`, `QG_LLM_MAX_TOKENS` (+ canonical `*_API_KEY` fallbacks) |
 | Ingress/service | `GITHUB_WEBHOOK_SECRET`, `QG_ALLOWED_REPOS`, `QG_INGRESS_HOST`, `QG_INGRESS_PORT`, `QG_WORKTREE_ROOT`, `QG_CLONE_TIMEOUT`, `QG_MAX_WORKTREE_BYTES`, `QG_MAX_CONCURRENT_RUNS` |
@@ -1016,6 +1057,7 @@ volatile during early history edits; commits are identified by subject):
 | 96 | `feat(orchestrator)`: FR-O33 ruleset layout + provenance + 29-rule batch |
 | 97 | `ci`: bench corpus weekly workflow |
 | 98 | `feat(orchestrator)`: FR-O33 ruleset batch 2 (+21 rules, taint) |
+| 100 | `docs`: FR-O34 data governance + prompt redaction |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1108,7 +1150,8 @@ coverage under measurement, then governance and isolation.
   Every new rule requires a benchmark case proving its detection
   and a measured FP cost; the image build validates the ruleset
   offline so a broken rule fails the build, not reviews.
-- **FR-O34 Data governance + prompt redaction.** `QG_LLM_PROVIDER`,
+- **FR-O34 Data governance + prompt redaction.** *(specced — §4.2)*
+  `QG_LLM_PROVIDER`,
   `QG_LLM_BASE_URL`, `QG_LLM_MODEL` and role-scoped
   `QG_LLM_*_<ROLE>` overrides already exist (FR-O13/O15), including
   Ollama and arbitrary OpenAI-compatible endpoints — the net-new
