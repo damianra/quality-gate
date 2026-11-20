@@ -68,7 +68,7 @@ rules:
     metadata: {source: qg, cwe: 250}
 
   - id: generic-gha-pull-request-target
-    pattern-regex: '^\s*pull_request_target\s*:'
+    pattern-regex: '\bpull_request_target\b'
     message: pull_request_target runs in the privileged base-repo
       context with secrets — never check out or execute PR-head code
       in this workflow.

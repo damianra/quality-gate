@@ -276,14 +276,26 @@ rules:
           - pattern: $REQ.params
           - pattern: $REQ.body
     pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CP.exec($CMD, ...)
+              - pattern: $CP.execSync($CMD, ...)
+              - pattern: $CP.spawn($CMD, ...)
+              - pattern: $CP.spawnSync($CMD, ...)
+              - pattern: $CP.execFile($CMD, ...)
+              - pattern: $CP.execFileSync($CMD, ...)
+              - pattern: $CP.fork($CMD, ...)
+          - metavariable-regex:
+              metavariable: $CP
+              regex: "(^|\\.)(cp|child_process|childProcess|childProc)$"
       - pattern-either:
-          - pattern: $CP.exec($CMD, ...)
-          - pattern: $CP.execSync($CMD, ...)
-          - pattern: $CP.spawn($CMD, ...)
-          - pattern: $CP.spawnSync($CMD, ...)
-          - pattern: $CP.execFile($CMD, ...)
-          - pattern: $CP.execFileSync($CMD, ...)
-          - pattern: $CP.fork($CMD, ...)
+          - pattern: exec($CMD, ...)
+          - pattern: execSync($CMD, ...)
+          - pattern: execFile($CMD, ...)
+          - pattern: execFileSync($CMD, ...)
+          - pattern: spawn($CMD, ...)
+          - pattern: spawnSync($CMD, ...)
+          - pattern: fork($CMD, ...)
     message: user-controlled request field reaches a child_process
       command — command injection; keep argv arrays and never
       interpolate user input.

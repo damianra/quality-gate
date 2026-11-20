@@ -5,12 +5,16 @@ requires: sandbox
 files:
   src/tools.js: |
     const cp = require("child_process");
+    const { exec } = require("child_process");
     function thumb(req, res) {
       const name = req.query.name;
       cp.exec("convert " + name + " -resize 64 out.png");
       res.send("ok");
     }
-    module.exports = { thumb };
+    function rotate(req, res) {
+      exec("mogrify " + req.params.f);
+    }
+    module.exports = { thumb, rotate };
 expect:
   findings:
     - agent: security
