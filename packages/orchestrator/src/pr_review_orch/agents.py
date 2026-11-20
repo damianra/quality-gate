@@ -482,8 +482,9 @@ def _call_record(
     if meta.get("text"):
         rec["raw"] = {"text": meta["text"][:1000]}
     # FR-T2 telemetry: perf/RSS/provider footprint — absent keys mean
-    # "provider did not report", never zero-cost.
-    for key in ("perf", "memory", "provider_stats"):
+    # "provider did not report", never zero-cost. FR-O34 `redactions`
+    # is absent only when the scrub pass was disabled (QG_LLM_REDACT=0).
+    for key in ("perf", "memory", "provider_stats", "redactions"):
         if meta.get(key) is not None:
             rec[key] = meta[key]
     return rec

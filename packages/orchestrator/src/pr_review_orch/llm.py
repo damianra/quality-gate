@@ -37,6 +37,8 @@ import httpx
 
 from quality_gate_mcp import tools as mcp_tools
 
+from . import secrets
+
 _DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger("pr-review-orch.llm")
@@ -256,6 +258,7 @@ class LLMConfig:
     timeout: float = _DEFAULT_TIMEOUT
     max_tokens: int = 20000
     json_mode: bool = False
+    redact: bool = True
     role: str = ""
 
     @classmethod
@@ -304,6 +307,8 @@ class LLMConfig:
             max_tokens=int(env.get("QG_LLM_MAX_TOKENS", "20000")),
             json_mode=env.get("QG_LLM_JSON_MODE", "").strip().lower()
             in {"1", "true", "yes", "on"},
+            redact=env.get("QG_LLM_REDACT", "1").strip().lower()
+            not in {"0", "false", "no", "off"},
         )
 
     @classmethod
@@ -411,8 +416,20 @@ class LLMConfig:
             raise LLMConfigError("LLM is disabled: set QG_LLM_PROVIDER")
         spec = PROVIDERS[self.provider]
         before_mb = _rss_mb()
+        # FR-O34: scrub prompt-bound secrets here — the single egress
+        # funnel every provider path (HTTP payloads and devin-cli
+        # argv) shares. `redactions` lands in meta so llm_calls
+        # records prove the pass ran; secret text is never retained.
+        redactions = 0
+        if self.redact:
+            system, n = secrets.redact(system)
+            redactions += n
+            user, n = secrets.redact(user)
+            redactions += n
         if spec.api == "devin-cli":
             meta = self._devin_cli(system, user, cwd)
+            if self.redact:
+                meta["redactions"] = redactions
             return _telemetry(before_mb, _rss_mb(), meta)
         if spec.api == "anthropic":
             url, headers, payload = self._anthropic_request(system, user)
@@ -428,6 +445,8 @@ class LLMConfig:
 
         meta = {**_parse_response(spec.api, data), "duration_s": duration_s}
         meta["provider_stats"] = self._provider_stats()
+        if self.redact:
+            meta["redactions"] = redactions
         return _telemetry(before_mb, _rss_mb(), meta)
 
     def _provider_stats(self) -> dict[str, Any] | None:

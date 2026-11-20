@@ -466,3 +466,108 @@ def test_provider_stats_ollama_unreachable_returns_none(
     cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
                               "QG_LLM_MODEL": "qwen3:8b"})
     assert cfg._provider_stats() is None
+
+
+# --------------------------------------------------------------------------- #
+# FR-O34 prompt-bound secret redaction
+# --------------------------------------------------------------------------- #
+
+
+def test_redact_on_by_default_and_opt_out() -> None:
+    assert LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "ollama"}).redact is True
+    assert LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "ollama",
+         "QG_LLM_REDACT": "0"}).redact is False
+    assert LLMConfig.from_env(
+        {"QG_LLM_PROVIDER": "ollama",
+         "QG_LLM_REDACT": "off"}).redact is False
+
+
+def test_redact_accepts_role_suffix() -> None:
+    env = {"QG_LLM_PROVIDER": "ollama",
+           "QG_LLM_REDACT_SECURITY": "0"}
+    assert LLMConfig.for_role("security", env).redact is False
+    assert LLMConfig.for_role("qa", env).redact is True
+
+
+def _capture_post(captured):
+    def _post(url, headers=None, json=None, timeout=None):
+        captured.append({"url": url, "json": json})
+        return _FakeResponse({
+            "choices": [{"message": {"content": "ok"},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        })
+    return _post
+
+
+def test_complete_with_meta_scrubs_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    captured: list[dict] = []
+    monkeypatch.setattr(llm_mod.httpx, "post", _capture_post(captured))
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
+                              "QG_LLM_MODEL": "m"})
+    secret = 'api_key = "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS"'
+    meta = cfg.complete_with_meta("sys", f"diff says: {secret}")
+    payload = captured[0]["json"]
+    user_msg = payload["messages"][1]["content"]
+    assert "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS" not in user_msg
+    assert "[REDACTED:generic-secret]" in user_msg
+    assert meta["redactions"] == 1
+
+
+def test_complete_with_meta_no_secret_records_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    captured: list[dict] = []
+    monkeypatch.setattr(llm_mod.httpx, "post", _capture_post(captured))
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
+                              "QG_LLM_MODEL": "m"})
+    meta = cfg.complete_with_meta("sys", "clean user text")
+    # 0 still lands in meta — the audit trail proves the pass ran
+    assert meta["redactions"] == 0
+    assert captured[0]["json"]["messages"][1]["content"] == \
+        "clean user text"
+
+
+def test_complete_with_meta_redact_off_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pr_review_orch.llm as llm_mod
+
+    captured: list[dict] = []
+    monkeypatch.setattr(llm_mod.httpx, "post", _capture_post(captured))
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "ollama",
+                              "QG_LLM_MODEL": "m",
+                              "QG_LLM_REDACT": "0"})
+    secret = 'api_key = "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS"'
+    meta = cfg.complete_with_meta("sys", secret)
+    assert captured[0]["json"]["messages"][1]["content"] == secret
+    assert "redactions" not in meta
+
+
+def test_devin_cli_prompt_is_scrubbed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[dict] = []
+
+    def _spawn(repo_path, command, args=None, timeout=None):
+        captured.append({"command": [command, *(args or [])]})
+        return {"pgid": 1, "exit_code": 0, "stdout": "ok",
+                "stderr": "", "timed_out": False, "duration_s": 0.1}
+
+    monkeypatch.setattr(
+        "pr_review_orch.llm.mcp_tools.spawn_process", _spawn)
+    cfg = LLMConfig.from_env({"QG_LLM_PROVIDER": "devin-cli"})
+    secret = 'token = "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS"'
+    meta = cfg.complete_with_meta("sys", secret, cwd="/repo")
+    prompt = captured[0]["command"][-1]
+    assert "xJ9fK2mQ7vB4nR8tY3wE6uI1oP5aS" not in prompt
+    assert "[REDACTED:generic-secret]" in prompt
+    assert meta["redactions"] == 1
