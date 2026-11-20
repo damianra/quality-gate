@@ -1,0 +1,17 @@
+id: semgrep-js-jwt-decode
+title: semgrep flags jwt.decode used for auth claims
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/auth.js: |
+    const jwt = require("jsonwebtoken");
+    function whoami(token) {
+      const claims = jwt.decode(token);
+      return claims.sub;
+    }
+    module.exports = { whoami };
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-jwt-decode-unverified

@@ -1,0 +1,17 @@
+id: semgrep-generic-gha-expression-injection
+title: semgrep flags attacker-controlled fields inside workflow YAML
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  .github/workflows/label.yml: |
+    on: issues
+    jobs:
+      label:
+        runs-on: ubuntu-latest
+        steps:
+          - run: echo "${{ github.event.issue.title }}"
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-gha-expression-injection

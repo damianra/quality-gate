@@ -1,0 +1,14 @@
+id: semgrep-python-mako-template
+title: semgrep flags mako template use
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/views.py: |
+    import mako.template
+    def page(body):
+        return mako.template.Template(body).render()
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-mako-template

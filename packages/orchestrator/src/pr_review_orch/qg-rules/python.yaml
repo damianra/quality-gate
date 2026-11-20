@@ -262,3 +262,102 @@ rules:
     languages: [python]
     severity: WARNING
     metadata: {source: bandit, ref: B401, cwe: 319}
+
+  - id: python-hardcoded-password-string
+    patterns:
+      - pattern-either:
+          - pattern: '$VAR = "..."'
+          - pattern: '$VAR: $T = "..."'
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: "(?i).*(password|passwd|pwd|secret|token|api_?key|access_?key|credential).*"
+    message: credential-looking literal assigned to a secret-named
+      variable — move it to env vars or a secrets store.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B105, cwe: 798}
+
+  - id: python-hardcoded-password-default
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $F(..., $KW="...", ...):
+                ...
+          - pattern: |
+              def $F(..., $KW: $T="...", ...):
+                ...
+      - metavariable-regex:
+          metavariable: $KW
+          regex: "(?i).*(password|passwd|pwd|secret|token|api_?key|access_?token|auth_?token).*"
+    message: credential-looking literal as a keyword default — callers
+      inherit the hardcoded secret.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B107, cwe: 798}
+
+  - id: python-random-insecure
+    patterns:
+      - pattern: random.$M(...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(random|randint|randrange|randbytes|choice|choices|shuffle|sample|uniform|triangular|betavariate|expovariate|gammavariate|gauss|lognormvariate|normalvariate|vonmisesvariate|paretovariate|weibullvariate|getrandbits|seed|Random)$"
+    message: random.* PRNG is not cryptographically secure — use
+      secrets/os.urandom for tokens, keys and IDs.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B311, cwe: 338}
+
+  - id: python-urllib-request-open
+    pattern-either:
+      - pattern: urllib.request.urlopen(...)
+      - pattern: urllib.request.urlretrieve(...)
+      - pattern: urllib.urlopen(...)
+      - pattern: urllib.urlretrieve(...)
+      - pattern: urlopen(...)
+      - pattern: urlretrieve(...)
+    message: urllib urlopen/urlretrieve fetch arbitrary schemes
+      (http/file/ftp) — audit for SSRF and path access; prefer
+      requests with an allowlisted URL.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B310, cwe: 939}
+
+  - id: python-mark-safe
+    patterns:
+      - pattern: $F($X)
+      - metavariable-regex:
+          metavariable: $F
+          regex: "^(mark_safe|safestring\\.mark_safe|django\\.utils\\.safestring\\.mark_safe)$"
+      - pattern-not: $F("...")
+    message: mark_safe() on non-literal content disables escaping —
+      XSS risk if the value is user-controlled.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B703, cwe: 79}
+
+  - id: python-mako-template
+    pattern-either:
+      - pattern: mako.template.Template(...)
+      - pattern: mako.lookup.TemplateLookup(...)
+      - pattern: TemplateLookup(...)
+    message: Mako templates evaluate Python expressions — rendering
+      untrusted input is code execution; prefer a sandboxed engine.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B702, cwe: 94}
+
+  - id: python-weak-crypto-key
+    patterns:
+      - pattern-either:
+          - pattern: rsa.generate_private_key($E, $BITS, ...)
+          - pattern: rsa.generate_private_key(..., key_size=$BITS, ...)
+          - pattern: dsa.generate_private_key($BITS, ...)
+          - pattern: dsa.generate_private_key(..., key_size=$BITS, ...)
+      - metavariable-comparison:
+          metavariable: $BITS
+          comparison: $BITS < 2048
+    message: RSA/DSA key under 2048 bits — below current minimums;
+      use 3072+ or Ed25519.
+    languages: [python]
+    severity: WARNING
+    metadata: {source: bandit, ref: B505, cwe: 326}

@@ -1,0 +1,16 @@
+id: semgrep-js-tls-obsolete
+title: semgrep flags an obsolete TLS protocol selection
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/tls.js: |
+    const tls = require("tls");
+    function context(opts) {
+      return tls.createSecureContext({ secureProtocol: "SSLv3_method", key: opts.key });
+    }
+    module.exports = { context };
+expect:
+  findings:
+    - agent: security
+      severity: warning
+      match: js-tls-obsolete-protocol

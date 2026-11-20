@@ -1,0 +1,14 @@
+id: semgrep-python-mark-safe
+title: semgrep flags mark_safe on non-literal content
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  app/render.py: |
+    from django.utils.safestring import mark_safe
+    def card(user_input):
+        return mark_safe(user_input)
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: python-mark-safe

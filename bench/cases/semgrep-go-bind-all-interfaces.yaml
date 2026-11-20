@@ -1,0 +1,14 @@
+id: semgrep-go-bind-all-interfaces
+title: semgrep flags net.Listen on 0.0.0.0
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/serve/main.go: |
+    package main
+    import "net"
+    func main() { _, _ = net.Listen("tcp", "0.0.0.0:9090") }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-bind-all-interfaces

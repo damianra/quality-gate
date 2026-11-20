@@ -1,0 +1,19 @@
+id: semgrep-generic-gha-pull-request-target
+title: semgrep flags a pull_request_target workflow trigger
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  .github/workflows/pr-target.yml: |
+    on:
+      pull_request_target:
+        types: [opened]
+    jobs:
+      triage:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: generic-gha-pull-request-target

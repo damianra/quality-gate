@@ -66,3 +66,29 @@ rules:
     languages: [generic]
     severity: WARNING
     metadata: {source: qg, cwe: 250}
+
+  - id: generic-gha-pull-request-target
+    pattern-regex: '^\s*pull_request_target\s*:'
+    message: pull_request_target runs in the privileged base-repo
+      context with secrets — never check out or execute PR-head code
+      in this workflow.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 829}
+
+  - id: generic-gha-expression-injection
+    pattern-regex: '\$\{\{\s*github\.(head_ref|event\.(issue|pull_request|comment|review|reviews|discussion|discussions|commits|pages|head_commit|workflow_run|merge_group))\b'
+    message: attacker-controlled GitHub field interpolated into the
+      workflow — script-injection risk inside shell steps; bind it
+      through an env var instead.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 94}
+
+  - id: generic-xml-xxe-entity
+    pattern-regex: '<!(ENTITY|DOCTYPE)[^>\n]*\sSYSTEM\b'
+    message: external XML entity/doctype — XXE payloads read local
+      files and hit internal endpoints on parsers without hardening.
+    languages: [generic]
+    severity: WARNING
+    metadata: {source: qg, cwe: 611}

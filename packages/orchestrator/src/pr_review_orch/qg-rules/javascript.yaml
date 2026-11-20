@@ -215,3 +215,78 @@ rules:
     languages: [javascript, typescript]
     severity: WARNING
     metadata: {source: nodejsscan, cwe: 22}
+
+  - id: js-math-random-insecure
+    pattern-either:
+      - pattern: Math.random(...)
+      - pattern: crypto.pseudoRandomBytes(...)
+    message: Math.random/pseudoRandomBytes are not cryptographically
+      secure — use crypto.randomBytes/randomInt for tokens and IDs.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 338}
+
+  - id: js-yaml-load
+    pattern-either:
+      - pattern: yaml.load(...)
+      - pattern: jsyaml.load(...)
+      - pattern: YAML.load(...)
+    message: js-yaml load() accepts unsafe types on old versions —
+      prefer yaml.load with safe schema or yaml.safeLoad equivalents.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 502}
+
+  - id: js-jwt-decode-unverified
+    pattern-either:
+      - pattern: jwt.decode(...)
+      - pattern: jsonwebtoken.decode(...)
+    message: jwt.decode() parses without verifying the signature —
+      never trust its claims for auth decisions.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 347}
+
+  - id: js-buffer-alloc-unsafe
+    pattern-either:
+      - pattern: new Buffer(...)
+      - pattern: Buffer.allocUnsafe(...)
+      - pattern: Buffer.allocUnsafeSlow(...)
+    message: deprecated/uninitialized Buffer allocation — may leak
+      old memory contents; use Buffer.alloc/Buffer.from.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata: {source: nodejsscan, cwe: 676}
+
+  - id: js-tls-obsolete-protocol
+    pattern-either:
+      - pattern-regex: 'secureProtocol\s*:\s*[''"](SSLv2|SSLv3|TLSv1|TLSv1_1|TLSv1\.1)(_method|_client|_server)?[''"]'
+      - pattern-regex: 'minVersion\s*:\s*[''"](SSLv2|SSLv3|TLSv1|TLSv1\.1)[''"]'
+    message: obsolete TLS protocol selected (SSLv3/TLSv1.x) — known-broken
+      transport security; require TLS1.2+.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 327}
+
+  - id: js-command-injection-taint
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query
+          - pattern: $REQ.params
+          - pattern: $REQ.body
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $CP.exec($CMD, ...)
+          - pattern: $CP.execSync($CMD, ...)
+          - pattern: $CP.spawn($CMD, ...)
+          - pattern: $CP.spawnSync($CMD, ...)
+          - pattern: $CP.execFile($CMD, ...)
+          - pattern: $CP.execFileSync($CMD, ...)
+          - pattern: $CP.fork($CMD, ...)
+    message: user-controlled request field reaches a child_process
+      command — command injection; keep argv arrays and never
+      interpolate user input.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata: {source: nodejsscan, cwe: 78}

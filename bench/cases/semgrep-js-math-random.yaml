@@ -1,0 +1,15 @@
+id: semgrep-js-math-random
+title: semgrep flags Math.random used for an identifier
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/ids.js: |
+    function sessionId() {
+      return Math.random().toString(36).slice(2);
+    }
+    module.exports = { sessionId };
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-math-random-insecure

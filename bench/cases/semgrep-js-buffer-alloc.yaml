@@ -1,0 +1,15 @@
+id: semgrep-js-buffer-alloc
+title: semgrep flags uninitialized Buffer allocation
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  src/pool.js: |
+    function scratch() {
+      return Buffer.allocUnsafe(4096);
+    }
+    module.exports = { scratch };
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: js-buffer-alloc-unsafe

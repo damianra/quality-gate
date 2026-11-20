@@ -1,0 +1,14 @@
+id: semgrep-go-pprof-import
+title: semgrep flags a blank net/http/pprof import
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  cmd/api/main.go: |
+    package main
+    import _ "net/http/pprof"
+    func main() {}
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-pprof-import

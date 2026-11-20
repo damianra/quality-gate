@@ -1,0 +1,14 @@
+id: semgrep-go-unsafe
+title: semgrep flags unsafe package use
+tags: [security, semgrep, sast]
+requires: sandbox
+files:
+  pkg/conv/conv.go: |
+    package conv
+    import "unsafe"
+    func cast(x *int) *byte { return (*byte)(unsafe.Pointer(x)) }
+expect:
+  findings:
+    - agent: security
+      severity: info
+      match: go-unsafe-usage
