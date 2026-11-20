@@ -290,6 +290,14 @@ se envuelve en centinelas explícitos de datos no confiables, y los
 findings del LLM solo pueden referenciar archivos realmente modificados
 en el PR.
 
+Gobernanza de datos (FR-O34): toda cadena enviada a un proveedor se
+depura de formas de secretos antes de construir la petición — las
+coincidencias quedan como `[REDACTED:<kind>]` y cada registro
+`llm_calls` lleva el conteo. `docs/data-handling.md` detalla qué sale
+del host por rol, qué endpoints alcanza cada proveedor y los
+interruptores (deja `QG_LLM_PROVIDER` sin definir para cero egreso
+LLM; `QG_LLM_REDACT=0` desactiva la depuración solo para depurar).
+
 ## Modo servicio (webhook)
 
 El stack también puede correr como servicio en vez de por invocación:

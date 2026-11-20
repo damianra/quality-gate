@@ -268,6 +268,14 @@ definition contexts), every evidence block sent to the models is
 wrapped in explicit untrusted-data sentinels, and LLM findings can only
 reference files actually changed in the PR.
 
+Data governance (FR-O34): every string bound for a provider is
+scrubbed for secret shapes before the request is built — matches
+become `[REDACTED:<kind>]` and each `llm_calls` record carries the
+count. `docs/data-handling.md` states exactly what leaves the host
+per role, which endpoints each provider reaches and the kill
+switches (unset `QG_LLM_PROVIDER` for zero LLM egress;
+`QG_LLM_REDACT=0` disables scrubbing for debugging only).
+
 ## Service mode (webhook)
 
 The stack can also run as a service instead of per-invocation: nginx

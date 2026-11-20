@@ -1058,6 +1058,7 @@ volatile during early history edits; commits are identified by subject):
 | 97 | `ci`: bench corpus weekly workflow |
 | 98 | `feat(orchestrator)`: FR-O33 ruleset batch 2 (+21 rules, taint) |
 | 99 | `docs`: FR-O34 data governance + prompt redaction |
+| 100 | `feat(orchestrator)`: FR-O34 redaction pass + data-handling doc |
 
 ## 11. Extension points (SDD backlog)
 
@@ -1150,8 +1151,8 @@ coverage under measurement, then governance and isolation.
   Every new rule requires a benchmark case proving its detection
   and a measured FP cost; the image build validates the ruleset
   offline so a broken rule fails the build, not reviews.
-- **FR-O34 Data governance + prompt redaction.** *(specced — §4.2)*
-  `QG_LLM_PROVIDER`,
+- **FR-O34 Data governance + prompt redaction.** *(implemented —
+  §4.2, `secrets.py` + `docs/data-handling.md`)* `QG_LLM_PROVIDER`,
   `QG_LLM_BASE_URL`, `QG_LLM_MODEL` and role-scoped
   `QG_LLM_*_<ROLE>` overrides already exist (FR-O13/O15), including
   Ollama and arbitrary OpenAI-compatible endpoints — the net-new

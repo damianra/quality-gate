@@ -313,6 +313,24 @@ def test_enrich_call_error_never_rejects(monkeypatch):
     assert out["llm_calls"][0]["status"] == "error"
 
 
+def test_enrich_call_record_carries_redactions(monkeypatch):
+    # FR-O34: the scrub pass count reaches llm_calls so a run can
+    # prove redaction executed; absent key = pass disabled.
+    _fake_cfg(monkeypatch, meta={
+        "text": "[]", "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.4, "redactions": 2,
+    })
+    out = agents._llm_enrich("review", agents.REVIEW_PROMPT, _state())
+    assert out["llm_calls"][0]["redactions"] == 2
+
+    _fake_cfg(monkeypatch, meta={
+        "text": "[]", "usage": {}, "finish_reason": "stop",
+        "truncated": False, "duration_s": 0.4,
+    })
+    out = agents._llm_enrich("review", agents.REVIEW_PROMPT, _state())
+    assert "redactions" not in out["llm_calls"][0]
+
+
 def test_enrich_truncated_degrades(monkeypatch):
     _fake_cfg(monkeypatch, meta={
         "text": "[{", "usage": {"prompt_tokens": 1, "completion_tokens": 9},
