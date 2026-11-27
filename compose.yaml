@@ -187,7 +187,7 @@ services:
   ollama:
     # FR-P14: `latest` frozen to a digest — the tag moves, the build
     # doesn't. Dependabot refreshes the digest.
-    image: docker.io/ollama/ollama:latest@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
+    image: docker.io/ollama/ollama:latest@sha256:1cabd20e1762a7a8444bf4a7110b346d923cd77ab6c97c984434140638c913ec
     profiles: ["llm"]
     volumes:
       - ollama-models:/root/.ollama
